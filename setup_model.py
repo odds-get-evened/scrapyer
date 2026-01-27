@@ -4,11 +4,10 @@ Automatic Setup Script for ONNX Model
 This script:
 1. Installs necessary dependencies from requirements.txt
 2. Downloads the MiniLM pre-trained model via Hugging Face
-3. Converts it to ONNX format using transformers.onnx utility
+3. Converts it to ONNX format using torch.onnx.export
 4. Saves the converted ONNX model to the nlp/onnx/ directory
 """
 
-import os
 import sys
 import subprocess
 from pathlib import Path
@@ -45,7 +44,6 @@ def download_and_convert_model():
     try:
         from transformers import AutoTokenizer, AutoModel
         import torch
-        from pathlib import Path
         
         # Model name
         model_name = "microsoft/MiniLM-L6-H384-uncased"

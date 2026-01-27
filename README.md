@@ -40,7 +40,8 @@ similarity = model.get_similarity("scrape website", "extract web data")
 
 - onnxruntime
 - transformers
-- aiohttp
 - numpy
+- torch
+- aiohttp
 
 Install all requirements: `pip install -r requirements.txt`

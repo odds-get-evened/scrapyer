@@ -6,4 +6,3 @@ venv
 nlp/onnx/*.onnx
 *.onnx
 .cache/
-__pycache__/

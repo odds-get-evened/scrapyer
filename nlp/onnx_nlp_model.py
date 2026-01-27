@@ -6,7 +6,6 @@ Compatible with 'microsoft/MiniLM-L6-H384-uncased' tokenizer for query tokenizat
 Supports natural language query processing to predict intents and output class probabilities.
 """
 
-import os
 import numpy as np
 from pathlib import Path
 from typing import List, Dict, Any, Optional
@@ -144,6 +143,11 @@ class ONNXNLPModel:
         # Shape: (batch_size, seq_length, hidden_size)
         # Apply mean pooling using attention mask
         attention_mask = inputs['attention_mask']
+        
+        # Validate attention mask is not all zeros
+        if np.sum(attention_mask) == 0:
+            raise ValueError("Invalid input: attention mask is all zeros")
+        
         mask_expanded = np.expand_dims(attention_mask, -1)
         sum_embeddings = np.sum(embeddings * mask_expanded, axis=1)
         sum_mask = np.clip(np.sum(attention_mask, axis=1, keepdims=True), a_min=1e-9, a_max=None)
@@ -188,11 +192,15 @@ class ONNXNLPModel:
         emb1 = pred1['embeddings'].flatten()
         emb2 = pred2['embeddings'].flatten()
         
-        # Compute cosine similarity
-        dot_product = np.dot(emb1, emb2)
+        # Compute cosine similarity with zero-vector check
         norm1 = np.linalg.norm(emb1)
         norm2 = np.linalg.norm(emb2)
         
+        # Handle zero vectors
+        if norm1 == 0 or norm2 == 0:
+            return 0.0
+        
+        dot_product = np.dot(emb1, emb2)
         similarity = dot_product / (norm1 * norm2)
         
         return float(similarity)

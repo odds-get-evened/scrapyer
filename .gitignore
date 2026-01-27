@@ -2,3 +2,8 @@ venv
 *.egg-info
 .idea
 */__pycache__/*
+# ONNX models and cache
+nlp/onnx/*.onnx
+*.onnx
+.cache/
+__pycache__/

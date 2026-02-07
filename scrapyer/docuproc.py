@@ -114,16 +114,14 @@ class DocumentProcessor:
                     rel_urlized = rel_path.as_posix()
 
                     # Create a safer regex pattern that escapes special characters
+                    # re.escape ensures all special regex chars are properly escaped
                     escaped_path = re.escape(rel_urlized)
                     # Look for the path in attribute values (src, href, etc.)
                     # Pattern matches: attribute="...path..." where path might have absolute URL prefix
                     pattern = r'((?:src|href|data-src|data-href)=["\'])([^"\']*' + escaped_path + r')(["\'])'
                     
-                    # Use re.sub to replace all occurrences with the local path
-                    def replacer(match):
-                        return match.group(1) + rel_urlized + match.group(3)
-                    
-                    html_text = re.sub(pattern, replacer, html_text, flags=re.IGNORECASE)
+                    # Use re.sub with lambda to replace all occurrences with the local path
+                    html_text = re.sub(pattern, lambda m: m.group(1) + rel_urlized + m.group(3), html_text, flags=re.IGNORECASE)
             
             # make content text to bytes
             revised = html_text.encode('utf-8')

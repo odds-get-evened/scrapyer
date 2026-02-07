@@ -22,3 +22,8 @@ def boot_up():
         doc.start()
     except IndexError as e:
         print("1st and 2nd arguments required (e.g. scrapyer <url> <save path>)")
+    except Exception as e:
+        print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)

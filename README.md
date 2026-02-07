@@ -4,6 +4,38 @@
 
 #### a web page archiver with NLP capabilities
 
+## Installation
+
+### Install from GitHub
+
+You can install scrapyer directly from GitHub:
+
+```shell
+$ pip install git+https://github.com/odds-get-evened/scrapyer.git
+```
+
+This will install the base package with basic scraping capabilities.
+
+### Install with NLP features
+
+To include NLP capabilities, install with the `nlp` extra:
+
+```shell
+$ pip install "git+https://github.com/odds-get-evened/scrapyer.git#egg=scrapyer[nlp]"
+```
+
+### Install from source
+
+```shell
+$ git clone https://github.com/odds-get-evened/scrapyer.git
+$ cd scrapyer
+$ pip install .
+# For NLP features:
+$ pip install ".[nlp]"
+```
+
+## Usage
+
 ```shell
 $ scrapyer "http://example.com/page?id=12345#yup" /some/place/to/store/files/
 ```
@@ -14,12 +46,14 @@ Scrapyer now includes lightweight natural language processing (NLP) capabilities
 
 ### Setup
 
-1. Install dependencies and download the model:
+1. Install scrapyer with NLP dependencies (see Installation section above)
+
+2. Download and set up the model:
 ```shell
 $ python setup_model.py
 ```
 
-2. The model will be automatically downloaded, converted to ONNX format, and saved in the `nlp/onnx/` directory.
+3. The model will be automatically downloaded, converted to ONNX format, and saved in the `nlp/onnx/` directory.
 
 ### Usage
 
@@ -44,4 +78,4 @@ similarity = model.get_similarity("scrape website", "extract web data")
 - torch
 - aiohttp
 
-Install all requirements: `pip install -r requirements.txt`
+Install all requirements: `pip install -r requirements.txt` or `pip install ".[nlp]"`

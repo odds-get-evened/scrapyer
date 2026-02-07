@@ -6,17 +6,16 @@ Compatible with 'microsoft/MiniLM-L6-H384-uncased' tokenizer for query tokenizat
 Supports natural language query processing to predict intents and output class probabilities.
 """
 
-import numpy as np
+from __future__ import annotations
 from pathlib import Path
 from typing import List, Dict, Any, Optional
+import threading
 
-try:
-    import onnxruntime as ort
-    from transformers import AutoTokenizer
-except ImportError:
-    raise ImportError(
-        "Required packages not installed. Please run 'pip install -r requirements.txt'"
-    )
+# Lazy imports to avoid ImportError during package installation
+np = None
+ort = None
+AutoTokenizer = None
+_import_lock = threading.Lock()
 
 
 class ONNXNLPModel:
@@ -39,6 +38,9 @@ class ONNXNLPModel:
             model_path: Path to the ONNX model file. If None, uses default path.
             tokenizer_name: Name or path of the tokenizer to use.
         """
+        # Import dependencies when actually using the model
+        self._ensure_dependencies()
+        
         if model_path is None:
             # Default path relative to this file
             base_dir = Path(__file__).parent
@@ -54,6 +56,26 @@ class ONNXNLPModel:
         # Load model and tokenizer
         self._load_model()
         self._load_tokenizer()
+    
+    def _ensure_dependencies(self):
+        """Ensure required dependencies are imported."""
+        global np, ort, AutoTokenizer
+        
+        # Thread-safe lazy import
+        with _import_lock:
+            if np is None or ort is None or AutoTokenizer is None:
+                try:
+                    import numpy as _np
+                    import onnxruntime as _ort
+                    from transformers import AutoTokenizer as _AutoTokenizer
+                    np = _np
+                    ort = _ort
+                    AutoTokenizer = _AutoTokenizer
+                except ImportError as e:
+                    raise ImportError(
+                        f"Required packages not installed: {e}. "
+                        f"Please install NLP dependencies with: pip install scrapyer[nlp]"
+                    )
     
     def _load_model(self):
         """Load the ONNX model."""

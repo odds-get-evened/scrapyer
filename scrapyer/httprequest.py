@@ -29,7 +29,7 @@ class HttpsProps:
     PORT = 443
 
 class HttpRequest:
-    def __init__(self, url: str, time_out: int = 10):
+    def __init__(self, url: str, time_out: int = 30):
         self.url: ParseResult = None
         self.timeout: int = time_out
         self.connection: HTTPConnection | HTTPSConnection = None

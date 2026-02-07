@@ -1,5 +1,6 @@
 import re
 import socket
+import ssl
 from pathlib import Path
 from time import sleep
 
@@ -33,7 +34,7 @@ class DocumentProcessor:
 
                 # save source files to storage directory
                 self.pop_sources()
-            except (TimeoutError, socket.gaierror) as e:
+            except (TimeoutError, socket.gaierror, ssl.SSLError, ConnectionError, OSError) as e:
                 sleep(self.request.timeout)
                 continue
 
@@ -139,28 +140,45 @@ class DocumentProcessor:
 
     def store_url(self, s: DocumentSource, parent_dirname = None) -> None:
         req = HttpRequest(s.url, time_out=self.request.timeout)
-        res = req.get()
+        
+        # Retry logic for transient SSL/timeout errors
+        max_retries = 3
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                res = req.get()
 
-        # don't bother with 404s
-        # print(f"status: {res.status} url: {s.url}")
-        if res.status != 404:
-            content = res.read()
+                # don't bother with 404s
+                # print(f"status: {res.status} url: {s.url}")
+                if res.status != 404:
+                    content = res.read()
 
-            local_path = Path(req.url.path[1:])
-            if parent_dirname is not None:
-                local_path = Path(parent_dirname, req.url.path[1:])
+                    local_path = Path(req.url.path[1:])
+                    if parent_dirname is not None:
+                        local_path = Path(parent_dirname, req.url.path[1:])
 
-            # has to have a file extension
-            if local_path.suffix != "":
-                local_path = self.save_path.joinpath(local_path)
-                if not local_path.exists():
-                    try:
-                        local_path.parent.mkdir(parents=True)
-                    except FileExistsError as e:
-                        pass
-                # store the files
-                print(f"stored: {local_path}")
-                local_path.write_bytes(content)
+                    # has to have a file extension
+                    if local_path.suffix != "":
+                        local_path = self.save_path.joinpath(local_path)
+                        if not local_path.exists():
+                            try:
+                                local_path.parent.mkdir(parents=True)
+                            except FileExistsError as e:
+                                pass
+                        # store the files
+                        print(f"stored: {local_path}")
+                        local_path.write_bytes(content)
+                break  # Success, exit retry loop
+                
+            except (TimeoutError, socket.gaierror, ssl.SSLError, ConnectionError, OSError) as e:
+                retry_count += 1
+                if retry_count < max_retries:
+                    print(f"Timeout/network error for {s.url}, retrying ({retry_count}/{max_retries})...")
+                    sleep(self.request.timeout)
+                else:
+                    print(f"Failed to retrieve {s.url} after {max_retries} attempts: {e}")
+                    break
 
 
     def pop_sources(self):

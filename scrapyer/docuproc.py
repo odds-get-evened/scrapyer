@@ -46,7 +46,7 @@ class DocumentProcessor:
     def save_html(self):
         html_file = self.save_path.joinpath('index.html')
         if not html_file.exists():
-            html_file.write_bytes(self.dom.prettify('utf8'))
+            html_file.write_bytes(self.dom.prettify(encoding='utf-8'))
 
         self.localize_html()
 
@@ -102,25 +102,36 @@ class DocumentProcessor:
 
     def localize_html(self):
         html_file = self.save_path.joinpath('index.html')
-        contents = html_file.read_bytes()
-        html_text = contents.decode('utf8')
+        try:
+            contents = html_file.read_bytes()
+            html_text = contents.decode('utf-8', errors='ignore')
 
-        # iterate thru all saved source files
-        for p in self.save_path.rglob('*.*'):
-            if p.suffix != '.html':
-                rel_path = p.relative_to(self.save_path)
-                # make slashes web friendly
-                rel_urlized = rel_path.as_posix()
+            # iterate thru all saved source files
+            for p in self.save_path.rglob('*.*'):
+                if p.suffix != '.html':
+                    rel_path = p.relative_to(self.save_path)
+                    # make slashes web friendly
+                    rel_urlized = rel_path.as_posix()
 
-                for found in  re.finditer(r"<.*=\"(.*%s)\".*>$" % re.escape(rel_urlized), html_text, re.M):
-                    orig = found.group(1)
-                    html_text = re.sub(re.escape(orig), rel_urlized, html_text)
-        # make content text to bytes
-        revised = html_text.encode('utf8')
-        # remove old file
-        html_file.unlink()
-        html_file.write_bytes(revised)
-        print("finalized document (index.html)")
+                    # Create a safer regex pattern that escapes special characters
+                    # re.escape ensures all special regex chars are properly escaped
+                    escaped_path = re.escape(rel_urlized)
+                    # Look for the path in attribute values (src, href, etc.)
+                    # Pattern matches: attribute="...path..." where path might have absolute URL prefix
+                    pattern = r'((?:src|href|data-src|data-href)=["\'])([^"\']*' + escaped_path + r')(["\'])'
+                    
+                    # Use re.sub with lambda to replace all occurrences with the local path
+                    html_text = re.sub(pattern, lambda m: m.group(1) + rel_urlized + m.group(3), html_text, flags=re.IGNORECASE)
+            
+            # make content text to bytes
+            revised = html_text.encode('utf-8')
+            # remove old file
+            html_file.unlink()
+            html_file.write_bytes(revised)
+            print("finalized document (index.html)")
+        except Exception as e:
+            print(f"Warning: Could not localize HTML: {e}")
+            # If localization fails, at least we have the original HTML saved
 
     def create_paths(self) -> None:
         if not self.save_path.exists():

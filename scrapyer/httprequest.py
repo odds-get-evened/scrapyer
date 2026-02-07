@@ -81,6 +81,9 @@ class HttpRequest:
         self.add_header('Accept-Encoding', '*/*')
         self.add_header('Connection', 'keep-alive')
         
+        # Recreate connection to avoid "Request-sent" error on retry
+        self.set_connection()
+        
         self.connection.request("GET", self.build_url_path(), body=self.body, headers=self.headers)
 
         return self.connection.getresponse()

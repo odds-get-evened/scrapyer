@@ -8,3 +8,7 @@ __pycache__/
 nlp/onnx/*.onnx
 *.onnx
 .cache/
+# Build directories
+build/
+dist/
+*.egg

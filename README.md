@@ -24,12 +24,6 @@ To include NLP capabilities, install with the `nlp` extra:
 $ pip install "git+https://github.com/odds-get-evened/scrapyer.git#egg=scrapyer[nlp]"
 ```
 
-Or if already installed, upgrade with NLP support:
-
-```shell
-$ pip install "scrapyer[nlp]"
-```
-
 ### Install from source
 
 ```shell

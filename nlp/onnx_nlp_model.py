@@ -6,13 +6,16 @@ Compatible with 'microsoft/MiniLM-L6-H384-uncased' tokenizer for query tokenizat
 Supports natural language query processing to predict intents and output class probabilities.
 """
 
-import numpy as np
+from __future__ import annotations
 from pathlib import Path
 from typing import List, Dict, Any, Optional
+import threading
 
 # Lazy imports to avoid ImportError during package installation
+np = None
 ort = None
 AutoTokenizer = None
+_import_lock = threading.Lock()
 
 
 class ONNXNLPModel:
@@ -56,20 +59,23 @@ class ONNXNLPModel:
     
     def _ensure_dependencies(self):
         """Ensure required dependencies are imported."""
-        global ort, AutoTokenizer
+        global np, ort, AutoTokenizer
         
-        if ort is None or AutoTokenizer is None:
-            try:
-                import onnxruntime as _ort
-                from transformers import AutoTokenizer as _AutoTokenizer
-                ort = _ort
-                AutoTokenizer = _AutoTokenizer
-            except ImportError as e:
-                raise ImportError(
-                    f"Required packages not installed: {e}. "
-                    f"Please run 'pip install -r requirements.txt' or "
-                    f"'pip install onnxruntime transformers'"
-                )
+        # Thread-safe lazy import
+        with _import_lock:
+            if np is None or ort is None or AutoTokenizer is None:
+                try:
+                    import numpy as _np
+                    import onnxruntime as _ort
+                    from transformers import AutoTokenizer as _AutoTokenizer
+                    np = _np
+                    ort = _ort
+                    AutoTokenizer = _AutoTokenizer
+                except ImportError as e:
+                    raise ImportError(
+                        f"Required packages not installed: {e}. "
+                        f"Please install NLP dependencies with: pip install scrapyer[nlp]"
+                    )
     
     def _load_model(self):
         """Load the ONNX model."""

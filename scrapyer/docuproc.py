@@ -50,6 +50,56 @@ class DocumentProcessor:
 
         self.localize_html()
 
+    def save_text(self) -> str:
+        """
+        Extracts plain text content from the HTML document.
+        Focuses on main content areas and preserves link URLs in readable format.
+        Returns plain text string without HTML markup.
+        """
+        if self.dom is None:
+            return ""
+        
+        # remove script and style elements from parsing
+        for element in self.dom(['script', 'style', 'nav', 'header', 'footer', 'aside']):
+            element.decompose()
+        
+        # try to find main content area (common patterns)
+        main_content = None
+        content_selectors = ['main', 'article', '[role="main"]', '.content', '#content', '.main', '#main']
+        
+        for selector in content_selectors:
+            main_content = self.dom.select_one(selector)
+            if main_content:
+                break
+        
+        # if no main content found, use body or entire document
+        if main_content is None:
+            main_content = self.dom.body if self.dom.body else self.dom
+        
+        # convert links to readable format: "link text (URL)"
+        for link in main_content.find_all('a'):
+            link_text = link.get_text(strip=True)
+            href = link.get('href', '')
+            if href:
+                # make absolute URL if relative
+                absolute_href = self.request.absolute_source(href)
+                # replace link element with formatted text
+                link.replace_with(f"{link_text} ({absolute_href})")
+        
+        # extract text with spacing between elements
+        text = main_content.get_text(separator='\n', strip=True)
+        
+        # clean up excessive whitespace and blank lines
+        text = re.sub(r'\n\s*\n+', '\n\n', text)
+        text = re.sub(r' +', ' ', text)
+        
+        # save to file
+        text_file = self.save_path.joinpath('content.txt')
+        text_file.write_text(text, encoding='utf-8')
+        print("saved plain text content (content.txt)")
+        
+        return text
+
     def localize_html(self):
         html_file = self.save_path.joinpath('index.html')
         contents = html_file.read_bytes()

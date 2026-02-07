@@ -13,6 +13,10 @@ from scrapyer.httprequest import HttpRequest
 # Network exceptions that should trigger retries
 NETWORK_EXCEPTIONS = (TimeoutError, socket.gaierror, ssl.SSLError, ConnectionError, OSError)
 
+# Retry configuration
+MAX_RETRIES = 3
+RETRY_DELAY_SECONDS = 5
+
 
 class DocumentProcessor:
     def __init__(self, req: HttpRequest, p: Path):
@@ -146,43 +150,42 @@ class DocumentProcessor:
         req = HttpRequest(s.url, time_out=self.request.timeout)
         
         # Retry logic for transient SSL/timeout errors
-        max_retries = 3
         retry_count = 0
         
-        while retry_count < max_retries:
+        while retry_count < MAX_RETRIES:
             try:
                 res = req.get()
 
-                # don't bother with 404s
-                # print(f"status: {res.status} url: {s.url}")
-                if res.status != 404:
-                    content = res.read()
+                # don't bother with 404s - no point retrying them
+                if res.status == 404:
+                    break
+                
+                content = res.read()
 
-                    local_path = Path(req.url.path[1:])
-                    if parent_dirname is not None:
-                        local_path = Path(parent_dirname, req.url.path[1:])
+                local_path = Path(req.url.path[1:])
+                if parent_dirname is not None:
+                    local_path = Path(parent_dirname, req.url.path[1:])
 
-                    # has to have a file extension
-                    if local_path.suffix != "":
-                        local_path = self.save_path.joinpath(local_path)
-                        if not local_path.exists():
-                            try:
-                                local_path.parent.mkdir(parents=True)
-                            except FileExistsError as e:
-                                pass
-                        # store the files
-                        print(f"stored: {local_path}")
-                        local_path.write_bytes(content)
+                # has to have a file extension
+                if local_path.suffix != "":
+                    local_path = self.save_path.joinpath(local_path)
+                    if not local_path.exists():
+                        try:
+                            local_path.parent.mkdir(parents=True)
+                        except FileExistsError as e:
+                            pass
+                    # store the files
+                    print(f"stored: {local_path}")
+                    local_path.write_bytes(content)
                 break  # Success, exit retry loop
                 
             except NETWORK_EXCEPTIONS as e:
                 retry_count += 1
-                if retry_count < max_retries:
-                    print(f"Timeout/network error for {s.url}, retrying ({retry_count}/{max_retries})...")
-                    # Use shorter delay for retries (5 seconds instead of full timeout)
-                    sleep(5)
+                if retry_count < MAX_RETRIES:
+                    print(f"Timeout/network error for {s.url}, retrying ({retry_count}/{MAX_RETRIES})...")
+                    sleep(RETRY_DELAY_SECONDS)
                 else:
-                    print(f"Failed to retrieve {s.url} after {max_retries} attempts: {e}")
+                    print(f"Failed to retrieve {s.url} after {MAX_RETRIES} attempts: {e}")
                     break
 
 

@@ -10,6 +10,10 @@ from scrapyer.docusource import DocumentSource, SourceType
 from scrapyer.httprequest import HttpRequest
 
 
+# Network exceptions that should trigger retries
+NETWORK_EXCEPTIONS = (TimeoutError, socket.gaierror, ssl.SSLError, ConnectionError, OSError)
+
+
 class DocumentProcessor:
     def __init__(self, req: HttpRequest, p: Path):
         self.dom: BeautifulSoup = None
@@ -34,7 +38,7 @@ class DocumentProcessor:
 
                 # save source files to storage directory
                 self.pop_sources()
-            except (TimeoutError, socket.gaierror, ssl.SSLError, ConnectionError, OSError) as e:
+            except NETWORK_EXCEPTIONS as e:
                 sleep(self.request.timeout)
                 continue
 
@@ -171,11 +175,12 @@ class DocumentProcessor:
                         local_path.write_bytes(content)
                 break  # Success, exit retry loop
                 
-            except (TimeoutError, socket.gaierror, ssl.SSLError, ConnectionError, OSError) as e:
+            except NETWORK_EXCEPTIONS as e:
                 retry_count += 1
                 if retry_count < max_retries:
                     print(f"Timeout/network error for {s.url}, retrying ({retry_count}/{max_retries})...")
-                    sleep(self.request.timeout)
+                    # Use shorter delay for retries (5 seconds instead of full timeout)
+                    sleep(5)
                 else:
                     print(f"Failed to retrieve {s.url} after {max_retries} attempts: {e}")
                     break

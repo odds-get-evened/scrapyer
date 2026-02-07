@@ -33,7 +33,7 @@ class DocumentProcessor:
 
                 # save source files to storage directory
                 self.pop_sources()
-            except TimeoutError | socket.gaierror as e:
+            except (TimeoutError, socket.gaierror) as e:
                 sleep(self.request.timeout)
                 continue
 

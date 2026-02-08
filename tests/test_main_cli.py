@@ -82,6 +82,28 @@ class TestCLIArgumentParsing(unittest.TestCase):
     
     @patch('scrapyer.main.DocumentProcessor')
     @patch('scrapyer.main.HttpRequest')
+    @patch('ssl.create_default_context')
+    def test_ssl_cert_with_no_verify_ssl(self, mock_ssl_create, mock_http_request, mock_doc_processor):
+        """Test --ssl-cert with --no-verify-ssl allows disabling verification even with custom cert"""
+        mock_context = MagicMock(spec=ssl.SSLContext)
+        mock_ssl_create.return_value = mock_context
+        
+        test_args = ['scrapyer', 'https://example.com', '/tmp/test', '--ssl-cert', '/tmp/cert.pem', '--no-verify-ssl']
+        
+        with patch.object(sys, 'argv', test_args):
+            main.boot_up()
+        
+        # Verify ssl.create_default_context was called with cafile
+        mock_ssl_create.assert_called_once_with(cafile='/tmp/cert.pem')
+        
+        # Verify HttpRequest was called with the SSL context but verify_ssl=False
+        mock_http_request.assert_called_once()
+        call_args = mock_http_request.call_args
+        self.assertEqual(call_args[1]['ssl_context'], mock_context)
+        self.assertFalse(call_args[1]['verify_ssl'])  # Should respect --no-verify-ssl flag
+    
+    @patch('scrapyer.main.DocumentProcessor')
+    @patch('scrapyer.main.HttpRequest')
     def test_combined_arguments(self, mock_http_request, mock_doc_processor):
         """Test combining multiple arguments"""
         test_args = [

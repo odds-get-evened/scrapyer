@@ -48,7 +48,9 @@ Examples:
             # Create SSL context with custom certificate
             print(f"Using SSL certificate: {args.ssl_cert}")
             ssl_context = ssl.create_default_context(cafile=args.ssl_cert)
-            verify_ssl = True  # When using custom cert, we want verification enabled
+            # Only enable verification when custom cert is provided if not explicitly disabled
+            if not args.no_verify_ssl:
+                verify_ssl = True
         
         if args.no_verify_ssl:
             print("⚠️  Warning: SSL verification disabled!")

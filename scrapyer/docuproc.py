@@ -181,6 +181,11 @@ class DocumentProcessor:
                 if self.media_types:
                     self.extract_media_sources()
                 
+            except ValueError as e:
+                # Handle non-HTML content types (e.g., Atom feeds, XML, JSON)
+                print(f"⚠️  Skipping: {e}")
+                self.is_processing = False
+                return  # Skip processing this URL
             except NETWORK_EXCEPTIONS as e:
                 print(f"❌ Network error: {e}")
                 sleep(self.timeout)

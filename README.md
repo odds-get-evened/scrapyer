@@ -52,6 +52,22 @@ Scrapyer supports custom SSL/TLS configuration for HTTPS connections, including:
 - **Custom CA bundles** - Use custom certificate authority bundles for internal/corporate certificates
 - **Client certificate authentication** - Support for mutual TLS authentication
 
+#### Command Line Options
+
+```shell
+# Disable SSL verification for self-signed certificates
+$ scrapyer https://localhost:8443 /path/to/save --no-verify-ssl
+
+# Use a custom SSL certificate
+$ scrapyer https://example.com /path/to/save --ssl-cert /path/to/cert.pem
+
+# Set custom timeout
+$ scrapyer http://example.com /path/to/save --timeout 60
+
+# View all options
+$ scrapyer --help
+```
+
 **📖 For detailed SSL configuration examples and usage, see [SSL_USAGE.md](SSL_USAGE.md)**
 
 ## Features

@@ -27,14 +27,13 @@ class TestContentFiltering(unittest.TestCase):
     
     def test_excluded_patterns_defined(self):
         """Test that EXCLUDED_CLASS_ID_PATTERNS includes common UI patterns"""
-        # Convert patterns to string for easier checking
-        patterns_str = ' '.join(EXCLUDED_CLASS_ID_PATTERNS)
+        # Check each pattern individually to avoid false positives
+        expected_patterns = ['sidebar', 'menu', 'breadcrumb', 'advertisement', 'modal']
         
-        self.assertIn('sidebar', patterns_str)
-        self.assertIn('menu', patterns_str)
-        self.assertIn('breadcrumb', patterns_str)
-        self.assertIn('advertisement', patterns_str)
-        self.assertIn('modal', patterns_str)
+        for expected in expected_patterns:
+            # Check if the pattern exists in any of the regex patterns
+            found = any(expected in pattern for pattern in EXCLUDED_CLASS_ID_PATTERNS)
+            self.assertTrue(found, f"Pattern '{expected}' not found in EXCLUDED_CLASS_ID_PATTERNS")
     
     @patch('scrapyer.docuproc.HttpRequest')
     def test_filter_navigation_elements_by_role(self, mock_request):

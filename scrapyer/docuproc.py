@@ -36,6 +36,9 @@ EXCLUDED_CLASS_ID_PATTERNS = [
     r'social[-_]', r'share[-_]', r'sticky', r'overlay', r'toolbar',
 ]
 
+# Pre-compiled regex patterns for performance
+COMPILED_PATTERNS = [re.compile(pattern, re.IGNORECASE) for pattern in EXCLUDED_CLASS_ID_PATTERNS]
+
 # Main content selectors (in priority order)
 CONTENT_SELECTORS = [
     'article',
@@ -321,30 +324,45 @@ class DocumentProcessor:
         Args:
             content: BeautifulSoup Tag object to filter
         """
-        removed_count = 0
+        # Collect elements to remove (avoid modifying tree while iterating)
+        elements_to_remove = []
         
-        # Filter by ARIA role
+        # Find all elements with attributes that might need filtering
         for elem in content.find_all(True):
-            role = elem.get('role', '').lower()
-            if role in EXCLUDED_ROLES:
-                elem.decompose()
-                removed_count += 1
-                continue
+            should_remove = False
             
-            # Filter by class and id attributes
-            classes = ' '.join(elem.get('class', [])).lower()
-            elem_id = elem.get('id', '').lower()
-            combined_attrs = f"{classes} {elem_id}"
+            # Check ARIA role
+            role = elem.get('role')
+            if role and role.lower() in EXCLUDED_ROLES:
+                should_remove = True
             
-            # Check if any pattern matches
-            for pattern in EXCLUDED_CLASS_ID_PATTERNS:
-                if re.search(pattern, combined_attrs):
-                    elem.decompose()
-                    removed_count += 1
-                    break
+            # Only process class/id if role check didn't trigger removal
+            if not should_remove:
+                classes = elem.get('class')
+                elem_id = elem.get('id')
+                
+                # Only check if element has class or id attributes
+                if classes or elem_id:
+                    # Combine class and id for pattern matching
+                    combined_attrs = ' '.join(classes or []) + ' ' + (elem_id or '')
+                    combined_attrs = combined_attrs.lower()
+                    
+                    # Check against pre-compiled patterns
+                    for pattern in COMPILED_PATTERNS:
+                        if pattern.search(combined_attrs):
+                            should_remove = True
+                            break
+            
+            if should_remove:
+                elements_to_remove.append(elem)
         
-        if removed_count > 0:
-            print(f"🧹 Filtered {removed_count} navigation/UI elements")
+        # Remove all identified elements
+        for elem in elements_to_remove:
+            elem.decompose()
+        
+        if elements_to_remove:
+            print(f"🧹 Filtered {len(elements_to_remove)} navigation/UI elements")
+
 
     def _extract_images(self, content: Tag):
         """Extract image URLs from <img>, <picture>, and srcset attributes."""

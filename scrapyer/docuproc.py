@@ -22,7 +22,19 @@ MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 5
 
 # HTML elements to remove (non-content)
-EXCLUDED_ELEMENTS = ['script', 'style', 'nav', 'header', 'footer', 'aside', 'noscript', 'iframe']
+EXCLUDED_ELEMENTS = ['script', 'style', 'nav', 'header', 'footer', 'aside', 'noscript', 'iframe', 
+                     'form', 'button', 'dialog']
+
+# ARIA roles to exclude (navigation and UI components)
+EXCLUDED_ROLES = ['navigation', 'banner', 'complementary', 'contentinfo']
+
+# Regex patterns for class/id attributes that indicate navigation or UI components
+EXCLUDED_CLASS_ID_PATTERNS = [
+    r'sidebar', r'menu', r'nav[-_]', r'breadcrumb', r'pagination',
+    r'advertisement', r'ad[-_]', r'banner', r'popup', r'modal',
+    r'widget', r'comment[-_]?(?:s|section)?', r'related', r'newsletter',
+    r'social[-_]', r'share[-_]', r'sticky', r'overlay', r'toolbar',
+]
 
 # Main content selectors (in priority order)
 CONTENT_SELECTORS = [
@@ -300,6 +312,40 @@ class DocumentProcessor:
         print("📄 Using entire document as main content")
         return self.dom.body if self.dom.body else self.dom
 
+    def _filter_navigation_and_ui_elements(self, content: Tag) -> None:
+        """
+        Remove navigation items and UI components from content based on:
+        - ARIA role attributes (navigation, banner, complementary, contentinfo)
+        - Common class/id patterns (sidebar, menu, nav, breadcrumb, ads, etc.)
+        
+        Args:
+            content: BeautifulSoup Tag object to filter
+        """
+        removed_count = 0
+        
+        # Filter by ARIA role
+        for elem in content.find_all(True):
+            role = elem.get('role', '').lower()
+            if role in EXCLUDED_ROLES:
+                elem.decompose()
+                removed_count += 1
+                continue
+            
+            # Filter by class and id attributes
+            classes = ' '.join(elem.get('class', [])).lower()
+            elem_id = elem.get('id', '').lower()
+            combined_attrs = f"{classes} {elem_id}"
+            
+            # Check if any pattern matches
+            for pattern in EXCLUDED_CLASS_ID_PATTERNS:
+                if re.search(pattern, combined_attrs):
+                    elem.decompose()
+                    removed_count += 1
+                    break
+        
+        if removed_count > 0:
+            print(f"🧹 Filtered {removed_count} navigation/UI elements")
+
     def _extract_images(self, content: Tag):
         """Extract image URLs from <img>, <picture>, and srcset attributes."""
         img_count = 0
@@ -437,6 +483,9 @@ class DocumentProcessor:
         # Fallback to body or entire document
         if main_content is None:
             main_content = text_dom.body if text_dom.body else text_dom
+        
+        # Filter out navigation and UI elements
+        self._filter_navigation_and_ui_elements(main_content)
         
         # Convert links to readable format: "link text (URL)"
         for link in main_content.find_all('a'):

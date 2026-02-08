@@ -321,6 +321,10 @@ class DocumentProcessor:
         - ARIA role attributes (navigation, banner, complementary, contentinfo)
         - Common class/id patterns (sidebar, menu, nav, breadcrumb, ads, etc.)
         
+        Performance optimization: Check ARIA role first (simple string lookup) before
+        processing class/id patterns (regex matching), as role checks are faster.
+        Elements are collected first then removed to avoid modifying the tree during iteration.
+        
         Args:
             content: BeautifulSoup Tag object to filter
         """
@@ -331,7 +335,7 @@ class DocumentProcessor:
         for elem in content.find_all(True):
             should_remove = False
             
-            # Check ARIA role
+            # Check ARIA role first (faster than regex matching)
             role = elem.get('role')
             if role and role.lower() in EXCLUDED_ROLES:
                 should_remove = True
@@ -344,7 +348,7 @@ class DocumentProcessor:
                 # Only check if element has class or id attributes
                 if classes or elem_id:
                     # Combine class and id for pattern matching
-                    combined_attrs = ' '.join(classes or []) + ' ' + (elem_id or '')
+                    combined_attrs = ' '.join(filter(None, [' '.join(classes or []), elem_id]))
                     combined_attrs = combined_attrs.lower()
                     
                     # Check against pre-compiled patterns

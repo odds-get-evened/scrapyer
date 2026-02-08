@@ -2,6 +2,7 @@
 Tests for content filtering of navigation and UI elements
 """
 
+import re
 import unittest
 from pathlib import Path
 from bs4 import BeautifulSoup
@@ -27,12 +28,16 @@ class TestContentFiltering(unittest.TestCase):
     
     def test_excluded_patterns_defined(self):
         """Test that EXCLUDED_CLASS_ID_PATTERNS includes common UI patterns"""
-        # Check each pattern individually to avoid false positives
+        # Check each expected keyword exists as a standalone pattern (not as substring)
         expected_patterns = ['sidebar', 'menu', 'breadcrumb', 'advertisement', 'modal']
         
         for expected in expected_patterns:
-            # Check if the pattern exists in any of the regex patterns
-            found = any(expected in pattern for pattern in EXCLUDED_CLASS_ID_PATTERNS)
+            # Check if the pattern exists as a complete match or word boundary
+            found = any(
+                expected == pattern or  # Exact match
+                re.search(r'\b' + re.escape(expected) + r'\b', pattern)  # Word boundary match
+                for pattern in EXCLUDED_CLASS_ID_PATTERNS
+            )
             self.assertTrue(found, f"Pattern '{expected}' not found in EXCLUDED_CLASS_ID_PATTERNS")
     
     @patch('scrapyer.docuproc.HttpRequest')

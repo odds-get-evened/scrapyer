@@ -1,3 +1,4 @@
+import hashlib
 import re
 import socket
 import ssl
@@ -68,7 +69,7 @@ class DocumentProcessor:
         self.save_path: Path = p
         self.strip_html: bool = strip_html
         self.preserve_structure: bool = preserve_structure
-        self.media_types: List[str] = media_types or ['images', 'videos', 'audio']
+        self.media_types: List[str] = media_types if media_types is not None else ['images', 'videos', 'audio']
         
         # Crawling configuration
         self.crawl: bool = crawl
@@ -164,7 +165,9 @@ class DocumentProcessor:
                     self._extract_and_queue_links(url, request)
                 
                 # Extract media sources from the page (images, videos, audio)
-                self.extract_media_sources()
+                # Skip if no media types are configured (text-only mode)
+                if self.media_types:
+                    self.extract_media_sources()
                 
             except NETWORK_EXCEPTIONS as e:
                 print(f"❌ Network error: {e}")
@@ -173,8 +176,8 @@ class DocumentProcessor:
 
             self.is_processing = False
 
-        # Download all media files
-        if self.media_sources:
+        # Download all media files (only if media types are configured)
+        if self.media_sources and self.media_types:
             print(f"\n📥 Downloading {len(self.media_sources)} media files...")
             for source in self.media_sources:
                 self.store_media(source, save_path, request)
@@ -299,7 +302,6 @@ class DocumentProcessor:
         
         # Add query string hash if present to make it unique
         if parsed.query:
-            import hashlib
             # Use SHA-256 for better collision resistance
             query_hash = hashlib.sha256(parsed.query.encode()).hexdigest()[:8]
             dir_name = f"{dir_name}_{query_hash}"
@@ -327,6 +329,45 @@ class DocumentProcessor:
             (page_dir / 'audio').mkdir(exist_ok=True)
         
         return page_dir
+
+    def _generate_content_filename(self, request: HttpRequest) -> str:
+        """
+        Generate a unique filename for the text content based on the URL.
+        
+        Args:
+            request: HttpRequest object containing the URL
+            
+        Returns:
+            String filename for the content file
+        """
+        # Get the full URL
+        full_url = request.get_root_url() + request.build_url_path()
+        parsed = urlparse(full_url)
+        
+        # Try to extract a meaningful name from the URL path
+        path_parts = [p for p in parsed.path.split('/') if p]
+        
+        if not path_parts:
+            # Root page - use index
+            base_name = "index"
+        else:
+            # Use the last path component, remove extension if present
+            last_part = path_parts[-1]
+            # Remove file extension if present (e.g., .html, .php)
+            base_name = re.sub(r'\.(html?|php|aspx?|jsp)$', '', last_part, flags=re.IGNORECASE)
+            # Clean up the name - only allow word chars, hyphens, and underscores
+            base_name = re.sub(r'[^\w\-_]', '_', base_name)
+            # Limit length
+            if len(base_name) > 50:
+                base_name = base_name[:50]
+        
+        # Add URL hash to ensure uniqueness
+        url_hash = hashlib.sha256(full_url.encode()).hexdigest()[:8]
+        
+        # Generate filename: basename_hash_content.txt
+        filename = f"{base_name}_{url_hash}_content.txt"
+        
+        return filename
 
     def _find_main_content(self) -> Tag:
         """
@@ -513,8 +554,11 @@ class DocumentProcessor:
         text = re.sub(r' +', ' ', text)
         text = text.strip()
         
+        # Generate unique filename based on URL
+        filename = self._generate_content_filename(request)
+        
         # Save to file
-        text_file = save_path.joinpath('content.txt')
+        text_file = save_path.joinpath(filename)
         text_file.write_text(text, encoding='utf-8')
         print(f"💾 Saved plain text content: {text_file}")
         print(f"📊 Extracted {len(text)} characters")
@@ -528,7 +572,7 @@ class DocumentProcessor:
         
         Args:
             save_path: Directory path to save the HTML file
-            request: HttpRequest object (not currently used, for future enhancements)
+            request: HttpRequest object for generating unique filename
         """
         if self.dom is None:
             return
@@ -566,8 +610,12 @@ class DocumentProcessor:
             
             cleaned_dom = BeautifulSoup(str(new_html), 'html.parser')
         
+        # Generate unique filename based on URL (same logic as text content, but .html)
+        text_filename = self._generate_content_filename(request)
+        html_filename = text_filename.replace('_content.txt', '_content.html')
+        
         # Save cleaned HTML
-        html_file = save_path.joinpath('content.html')
+        html_file = save_path.joinpath(html_filename)
         html_file.write_bytes(cleaned_dom.prettify(encoding='utf-8'))
         print(f"💾 Saved cleaned HTML: {html_file}")
 

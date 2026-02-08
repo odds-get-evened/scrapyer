@@ -45,6 +45,8 @@ Examples:
                         help='Path to SSL certificate file for custom CA or self-signed certificates')
     parser.add_argument('--media-types', type=str, default='images,videos,audio',
                         help='Comma-separated list of media types to extract: images, videos, audio (default: all)')
+    parser.add_argument('--text-only', action='store_true',
+                        help='Extract only text content, skip all media downloads (images, videos, audio)')
     parser.add_argument('--strip-html', action='store_true', default=True,
                         help='Strip all HTML tags and extract plain text (enabled by default)')
     parser.add_argument('--preserve-structure', action='store_true',
@@ -77,8 +79,12 @@ Examples:
             print("⚠️  Warning: SSL verification disabled!")
         
         # Parse media types configuration
-        media_types = [mt.strip().lower() for mt in args.media_types.split(',')]
-        print(f"📁 Extracting media types: {', '.join(media_types)}")
+        if args.text_only:
+            media_types = []
+            print("📝 Text-only mode: Media downloads disabled")
+        else:
+            media_types = [mt.strip().lower() for mt in args.media_types.split(',')]
+            print(f"📁 Extracting media types: {', '.join(media_types)}")
         
         # Display content extraction mode
         if args.strip_html:

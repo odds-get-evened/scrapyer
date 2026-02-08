@@ -16,7 +16,7 @@ REQUEST_USER_AGENTS = [
 
 def safe_queryize(m):
     """
-    safely encode query string values
+    Safely encode query string values for URL parameters.
     """
     if m.group() is not None:
         return m.group(1) + '=' + quote_plus(m.group(3))
@@ -30,22 +30,23 @@ class HttpsProps:
     PORT = 443
 
 class HttpRequest:
-    def __init__(self, url: str, time_out: int = 30, verify_ssl: bool = True, ssl_context: ssl.SSLContext = None):
+    def __init__(self, url: str, time_out: int = 30, verify_ssl: bool = True, 
+                 ssl_context: ssl.SSLContext = None, fetch_html_only: bool = False):
         """
-        Initialize an HTTP/HTTPS request.
+        Initialize an HTTP/HTTPS request for fetching web content.
         
         Args:
             url: The URL to request
             time_out: Timeout in seconds (default: 30)
             verify_ssl: Enable/disable SSL certificate verification (default: True)
-                       Note: Ignored if ssl_context is provided
             ssl_context: Custom SSL context for HTTPS connections (default: None)
-                        If provided, this takes precedence over verify_ssl
+            fetch_html_only: If True, only fetch HTML content and reject other content types (default: False)
         """
         self.url: ParseResult = None
         self.timeout: int = time_out
         self.verify_ssl: bool = verify_ssl
         self.ssl_context: ssl.SSLContext = ssl_context
+        self.fetch_html_only: bool = fetch_html_only  # NEW: flag to restrict to HTML only
         self.connection: HTTPConnection | HTTPSConnection = None
         self.port: int = HttpProps.PORT
         self.parse(url)
@@ -53,23 +54,25 @@ class HttpRequest:
         self.headers: dict = {}
 
     def parse(self, url: str) -> None:
+        """Parse the URL and initialize the connection."""
         p = urlparse(url)
         self.url = p
-
         self.determine_port()
         self.set_connection()
 
     def determine_port(self) -> None:
+        """Determine the port based on the URL scheme (HTTP or HTTPS)."""
         if self.url.scheme == HttpsProps.SCHEME:
             self.port = HttpsProps.PORT
         else:
             self.port = HttpProps.PORT
 
     def set_connection(self) -> None:
+        """Create HTTP or HTTPS connection object based on URL scheme."""
         host_name = socket.gethostbyname(socket.gethostname())
 
         if self.port == HttpsProps.PORT:
-            # Create or use custom SSL context
+            # Create or use custom SSL context for secure connections
             context = self._get_ssl_context()
             self.connection = HTTPSConnection(self.url.netloc, timeout=self.timeout, context=context)
         else:
@@ -77,7 +80,7 @@ class HttpRequest:
 
     def _get_ssl_context(self) -> ssl.SSLContext:
         """
-        Get SSL context for HTTPS connections.
+        Get SSL context for HTTPS connections with proper verification settings.
         
         Returns:
             SSLContext configured based on verify_ssl setting or custom context
@@ -97,44 +100,66 @@ class HttpRequest:
         return context
 
     def add_header(self, n: str, v: str) -> None:
+        """Add a custom header to the HTTP request."""
         self.headers[n] = v
 
     def get(self) -> HTTPResponse:
+        """
+        Execute the HTTP GET request and return the response.
+        When fetch_html_only is True, validates that response is HTML content.
+        
+        Returns:
+            HTTPResponse object containing the server's response
+            
+        Raises:
+            ValueError: If fetch_html_only is True and response is not HTML
+        """
         random_ua: str = secrets.choice(REQUEST_USER_AGENTS)
 
-        # randomize the User-Agent name
-        '''
-        rand_hash = hex(crc32(datetime.now().isoformat().encode('utf8')))[2:]
-        self.add_header('User-Agent',f"special-agent-{rand_hash}-browser/2.0")
-
-        self.add_header('Host', random_host)
-        '''
+        # Set request headers to simulate a real browser
         self.add_header('User-Agent', random_ua)
         self.add_header('Cache-Control', 'no-cache, no-store, must-revalidate')
         self.add_header('Pragma', 'no-cache')
         self.add_header('Expires', '0')
-        self.add_header('Accept', '*/*')
-        self.add_header('Accept-Language', '*/*')
-        self.add_header('Accept-Encoding', '*/*')
+        
+        # When fetching HTML only, specify acceptable content types
+        if self.fetch_html_only:
+            self.add_header('Accept', 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8')
+        else:
+            self.add_header('Accept', '*/*')
+            
+        self.add_header('Accept-Language', 'en-US,en;q=0.9')
+        self.add_header('Accept-Encoding', 'gzip, deflate, br')
         self.add_header('Connection', 'keep-alive')
         
         # Recreate connection to avoid "Request-sent" error on retry
         self.set_connection()
         
         self.connection.request("GET", self.build_url_path(), body=self.body, headers=self.headers)
-
-        return self.connection.getresponse()
+        response = self.connection.getresponse()
+        
+        # Validate content type if HTML-only mode is enabled
+        if self.fetch_html_only:
+            content_type = response.getheader('Content-Type', '').lower()
+            if not ('text/html' in content_type or 'application/xhtml' in content_type):
+                raise ValueError(
+                    f"Expected HTML content but received '{content_type}'. "
+                    f"This URL does not point to a web page."
+                )
+        
+        return response
 
     def build_url_path(self, path_only: bool = False) -> str:
         """
-        rebuild only the path from the original full URL
-
+        Rebuild only the path portion from the original full URL.
+        
+        Args:
+            path_only: If True, only return the path without query params or fragments
+            
         Returns:
-            string including path, parameters, query, and fragments
+            String including path, parameters, query, and fragments
         """
-
         p = ""
-
         p += self.url.path
 
         if path_only is False:
@@ -142,12 +167,7 @@ class HttpRequest:
                 p += f":{self.url.params}"
 
             if self.url.query != "":
-                # break it apart
-                '''
-                because this is an untreated string for URLs
-                we need to walk through items of query, and urlencode
-                each value
-                '''
+                # Safely encode query string values to prevent injection
                 p += "?" + re.sub(r"([^=]+)(=([^&#]*))?", safe_queryize, self.url.query)
 
             if self.url.fragment != "":
@@ -156,21 +176,33 @@ class HttpRequest:
         return p
 
     def absolute_source(self, p: str) -> str:
+        """
+        Convert a relative or root-relative path to an absolute URL.
+        
+        Args:
+            p: Path to convert (can be relative, root-relative, or already absolute)
+            
+        Returns:
+            Absolute URL string
+        """
         r = ""
 
         if p.startswith("/"):
-            # root path
+            # Root path - combine with domain
             r = self.get_root_url() + p
         elif re.match(r'^https?://', p):
+            # Already absolute URL
             r = p
         else:
-            # relative path
+            # Relative path - combine with current page path
             r = self.get_relative_url() + p
 
         return r
 
     def get_relative_url(self):
+        """Get the base URL including the current path (without filename)."""
         return self.get_root_url() + self.build_url_path(path_only=True)
 
     def get_root_url(self) -> str:
+        """Get the root URL (scheme + domain)."""
         return self.url.scheme + "://" + self.url.netloc

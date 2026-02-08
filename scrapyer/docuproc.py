@@ -22,7 +22,22 @@ MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 5
 
 # HTML elements to remove (non-content)
-EXCLUDED_ELEMENTS = ['script', 'style', 'nav', 'header', 'footer', 'aside', 'noscript', 'iframe']
+EXCLUDED_ELEMENTS = ['script', 'style', 'nav', 'header', 'footer', 'aside', 'noscript', 'iframe', 
+                     'form', 'button', 'dialog']
+
+# ARIA roles to exclude (navigation and UI components)
+EXCLUDED_ROLES = ['navigation', 'banner', 'complementary', 'contentinfo']
+
+# Regex patterns for class/id attributes that indicate navigation or UI components
+EXCLUDED_CLASS_ID_PATTERNS = [
+    r'sidebar', r'menu', r'nav[-_]', r'breadcrumb', r'pagination',
+    r'advertisement', r'ad[-_]', r'banner', r'popup', r'modal',
+    r'widget', r'comment[-_]?(?:s|section)?', r'related', r'newsletter',
+    r'social[-_]', r'share[-_]', r'sticky', r'overlay', r'toolbar',
+]
+
+# Pre-compiled regex patterns for performance
+COMPILED_PATTERNS = [re.compile(pattern, re.IGNORECASE) for pattern in EXCLUDED_CLASS_ID_PATTERNS]
 
 # Main content selectors (in priority order)
 CONTENT_SELECTORS = [
@@ -300,6 +315,59 @@ class DocumentProcessor:
         print("📄 Using entire document as main content")
         return self.dom.body if self.dom.body else self.dom
 
+    def _filter_navigation_and_ui_elements(self, content: Tag) -> None:
+        """
+        Remove navigation items and UI components from content based on:
+        - ARIA role attributes (navigation, banner, complementary, contentinfo)
+        - Common class/id patterns (sidebar, menu, nav, breadcrumb, ads, etc.)
+        
+        Performance optimization: Check ARIA role first (simple string lookup) before
+        processing class/id patterns (regex matching), as role checks are faster.
+        Elements are collected first then removed to avoid modifying the tree during iteration.
+        
+        Args:
+            content: BeautifulSoup Tag object to filter
+        """
+        # Collect elements to remove (avoid modifying tree while iterating)
+        elements_to_remove = []
+        
+        # Find all elements with attributes that might need filtering
+        for elem in content.find_all(True):
+            should_remove = False
+            
+            # Check ARIA role first (faster than regex matching)
+            role = elem.get('role')
+            if role and role.lower() in EXCLUDED_ROLES:
+                should_remove = True
+            
+            # Only process class/id if role check didn't trigger removal
+            if not should_remove:
+                classes = elem.get('class')
+                elem_id = elem.get('id')
+                
+                # Only check if element has class or id attributes
+                if classes or elem_id:
+                    # Combine class and id for pattern matching
+                    combined_attrs = ' '.join(filter(None, [' '.join(classes or []), elem_id]))
+                    combined_attrs = combined_attrs.lower()
+                    
+                    # Check against pre-compiled patterns
+                    for pattern in COMPILED_PATTERNS:
+                        if pattern.search(combined_attrs):
+                            should_remove = True
+                            break
+            
+            if should_remove:
+                elements_to_remove.append(elem)
+        
+        # Remove all identified elements
+        for elem in elements_to_remove:
+            elem.decompose()
+        
+        if elements_to_remove:
+            print(f"🧹 Filtered {len(elements_to_remove)} navigation/UI elements")
+
+
     def _extract_images(self, content: Tag):
         """Extract image URLs from <img>, <picture>, and srcset attributes."""
         img_count = 0
@@ -437,6 +505,9 @@ class DocumentProcessor:
         # Fallback to body or entire document
         if main_content is None:
             main_content = text_dom.body if text_dom.body else text_dom
+        
+        # Filter out navigation and UI elements
+        self._filter_navigation_and_ui_elements(main_content)
         
         # Convert links to readable format: "link text (URL)"
         for link in main_content.find_all('a'):

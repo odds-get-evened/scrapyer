@@ -49,6 +49,10 @@ Examples:
                         help='Strip all HTML tags and extract plain text (enabled by default)')
     parser.add_argument('--preserve-structure', action='store_true',
                         help='Preserve basic document structure (headings, paragraphs) in output')
+    parser.add_argument('--crawl', action='store_true',
+                        help='Crawl and extract content from all linked pages found on the initial URL')
+    parser.add_argument('--crawl-limit', type=int, metavar='N',
+                        help='Maximum number of pages to crawl (default: unlimited)')
     
     try:
         args = parser.parse_args()
@@ -104,7 +108,12 @@ Examples:
             save_path,
             strip_html=args.strip_html,
             preserve_structure=args.preserve_structure,
-            media_types=media_types
+            media_types=media_types,
+            crawl=args.crawl,
+            crawl_limit=args.crawl_limit,
+            timeout=args.timeout,
+            verify_ssl=verify_ssl,
+            ssl_context=ssl_context
         )
         doc.start()
         

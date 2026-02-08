@@ -3,7 +3,9 @@ import socket
 import ssl
 from pathlib import Path
 from time import sleep
-from typing import List
+from typing import List, Set
+from urllib.parse import urljoin, urlparse
+from collections import deque
 
 from bs4 import BeautifulSoup, Tag
 
@@ -40,7 +42,12 @@ class DocumentProcessor:
     def __init__(self, req: HttpRequest, p: Path, 
                  strip_html: bool = True, 
                  preserve_structure: bool = False,
-                 media_types: List[str] = None):
+                 media_types: List[str] = None,
+                 crawl: bool = False,
+                 crawl_limit: int = None,
+                 timeout: int = 30,
+                 verify_ssl: bool = True,
+                 ssl_context: ssl.SSLContext = None):
         """
         Initialize the document processor for extracting main content from web pages.
         
@@ -50,6 +57,11 @@ class DocumentProcessor:
             strip_html: Remove all HTML tags and extract plain text (default: True)
             preserve_structure: Keep basic structure like headings and paragraphs (default: False)
             media_types: List of media types to extract (e.g., ['images', 'videos', 'audio'])
+            crawl: If True, crawl linked pages from the initial URL (default: False)
+            crawl_limit: Maximum number of pages to crawl; None for unlimited (default: None)
+            timeout: Request timeout in seconds (default: 30)
+            verify_ssl: Enable/disable SSL certificate verification (default: True)
+            ssl_context: Custom SSL context for HTTPS connections (default: None)
         """
         self.dom: BeautifulSoup = None
         self.is_processing: bool = False
@@ -57,6 +69,17 @@ class DocumentProcessor:
         self.strip_html: bool = strip_html
         self.preserve_structure: bool = preserve_structure
         self.media_types: List[str] = media_types or ['images', 'videos', 'audio']
+        
+        # Crawling configuration
+        self.crawl: bool = crawl
+        self.crawl_limit: int = crawl_limit
+        self.timeout: int = timeout
+        self.verify_ssl: bool = verify_ssl
+        self.ssl_context: ssl.SSLContext = ssl_context
+        
+        # Track visited and queued URLs to avoid duplicates
+        self.visited_urls: Set[str] = set()
+        self.url_queue: deque = deque()
         
         # Store only media sources (no scripts or stylesheets)
         self.media_sources: list[DocumentSource] = []
@@ -69,13 +92,63 @@ class DocumentProcessor:
     def start(self):
         """
         Main processing loop: fetch HTML, extract content and media, save to disk.
+        If crawl mode is enabled, also crawl linked pages.
+        """
+        if self.crawl:
+            print(f"🔍 Crawl mode enabled" + (f" (limit: {self.crawl_limit} pages)" if self.crawl_limit else " (unlimited)"))
+        
+        # Start with the initial URL
+        initial_url = self.request.get_root_url() + self.request.build_url_path()
+        self.url_queue.append((initial_url, self.save_path))
+        
+        while self.url_queue:
+            # Check if we've reached the crawl limit
+            if self.crawl_limit and len(self.visited_urls) >= self.crawl_limit:
+                print(f"\n🛑 Reached crawl limit of {self.crawl_limit} pages")
+                break
+            
+            current_url, current_save_path = self.url_queue.popleft()
+            
+            # Skip if already visited
+            if current_url in self.visited_urls:
+                continue
+            
+            # Mark as visited
+            self.visited_urls.add(current_url)
+            
+            print(f"\n{'='*80}")
+            print(f"🌐 Processing page {len(self.visited_urls)}/{self.crawl_limit if self.crawl_limit else '∞'}: {current_url}")
+            print(f"{'='*80}")
+            
+            # Process this page
+            self._process_single_page(current_url, current_save_path)
+        
+        print(f"\n✨ Processing complete! Crawled {len(self.visited_urls)} page(s).")
+    
+    def _process_single_page(self, url: str, save_path: Path):
+        """
+        Process a single page: fetch, extract content and media, save to disk.
+        If crawl mode is enabled, extract and queue linked pages.
+        
+        Args:
+            url: The URL to process
+            save_path: Directory path to save extracted content
         """
         self.is_processing = True
-        print("🌐 Fetching web page...")
+        self.media_sources = []  # Reset media sources for each page
+        
+        # Create a new request for this URL
+        request = HttpRequest(
+            url,
+            time_out=self.timeout,
+            verify_ssl=self.verify_ssl,
+            ssl_context=self.ssl_context,
+            fetch_html_only=True
+        )
 
         while self.is_processing is True:
             try:
-                response = self.request.get()
+                response = request.get()
                 
                 # Validate that we received HTML content
                 content_type = response.getheader('Content-Type', '')
@@ -86,12 +159,16 @@ class DocumentProcessor:
                 self.dom = BeautifulSoup(response.read(), 'html.parser')
                 print(f"✅ Status: {response.status} {response.reason}")
 
+                # Extract links if crawl mode is enabled
+                if self.crawl:
+                    self._extract_and_queue_links(url, request)
+                
                 # Extract media sources from the page (images, videos, audio)
                 self.extract_media_sources()
                 
             except NETWORK_EXCEPTIONS as e:
                 print(f"❌ Network error: {e}")
-                sleep(self.request.timeout)
+                sleep(self.timeout)
                 continue
 
             self.is_processing = False
@@ -100,17 +177,15 @@ class DocumentProcessor:
         if self.media_sources:
             print(f"\n📥 Downloading {len(self.media_sources)} media files...")
             for source in self.media_sources:
-                self.store_media(source)
+                self.store_media(source, save_path, request)
 
         # Extract and save text content
         print("\n📝 Extracting text content...")
-        self.save_text()
+        self.save_text(save_path, request)
         
         # Optionally save cleaned HTML
         if not self.strip_html or self.preserve_structure:
-            self.save_cleaned_html()
-        
-        print("\n✨ Processing complete!")
+            self.save_cleaned_html(save_path, request)
 
     def extract_media_sources(self):
         """
@@ -134,6 +209,124 @@ class DocumentProcessor:
         # Extract audio if requested
         if 'audio' in self.media_types:
             self._extract_audio(main_content)
+    
+    def _extract_and_queue_links(self, base_url: str, request: HttpRequest):
+        """
+        Extract links from the current page and queue them for crawling.
+        Only queues links from the same domain.
+        
+        Args:
+            base_url: The current page URL
+            request: HttpRequest object for resolving relative URLs
+        """
+        if self.dom is None:
+            return
+        
+        base_domain = urlparse(base_url).netloc
+        links_found = 0
+        links_queued = 0
+        
+        # Find all <a> tags with href attributes
+        for link_tag in self.dom.find_all('a', href=True):
+            href = link_tag.get('href', '').strip()
+            
+            # Skip empty, anchor-only, javascript:, and mailto: links
+            if not href or href.startswith('#') or href.startswith('javascript:') or href.startswith('mailto:'):
+                continue
+            
+            try:
+                # Convert to absolute URL
+                absolute_url = request.absolute_source(href)
+                
+                # Parse the URL to check domain and clean it
+                parsed_url = urlparse(absolute_url)
+                
+                # Remove fragments (anchors)
+                clean_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}"
+                if parsed_url.query:
+                    clean_url += f"?{parsed_url.query}"
+                
+                # Only crawl links from the same domain
+                if parsed_url.netloc != base_domain:
+                    continue
+                
+                links_found += 1
+                
+                # Skip if already visited or queued
+                if clean_url in self.visited_urls or any(clean_url == url for url, _ in self.url_queue):
+                    continue
+                
+                # Create a subdirectory for this URL
+                page_dir = self._create_page_directory(clean_url)
+                
+                # Queue the link for processing
+                self.url_queue.append((clean_url, page_dir))
+                links_queued += 1
+                
+            except Exception as e:
+                # Skip problematic URLs - this is expected for malformed URLs
+                # Could log if needed: print(f"⚠️  Skipping invalid URL {href}: {e}")
+                continue
+        
+        if links_found > 0:
+            print(f"🔗 Found {links_found} links on page, queued {links_queued} new links for crawling")
+    
+    def _create_page_directory(self, url: str) -> Path:
+        """
+        Create a unique directory name for a URL based on its path.
+        
+        Args:
+            url: The URL to create a directory for
+            
+        Returns:
+            Path object for the page-specific directory
+        """
+        parsed = urlparse(url)
+        
+        # Create a safe directory name from the URL path
+        path_parts = [p for p in parsed.path.split('/') if p]
+        
+        if not path_parts:
+            # Root page
+            dir_name = "index"
+        else:
+            # Join path parts with underscores, replace unsafe characters
+            dir_name = '_'.join(path_parts)
+            dir_name = re.sub(r'[^\w\-_.]', '_', dir_name)
+            # Limit length
+            if len(dir_name) > 100:
+                dir_name = dir_name[:100]
+        
+        # Add query string hash if present to make it unique
+        if parsed.query:
+            import hashlib
+            # Use SHA-256 for better collision resistance
+            query_hash = hashlib.sha256(parsed.query.encode()).hexdigest()[:8]
+            dir_name = f"{dir_name}_{query_hash}"
+        
+        # Create the directory path
+        page_dir = self.save_path / dir_name
+        
+        # Handle duplicate directory names by appending a number
+        counter = 1
+        original_dir_name = dir_name
+        while page_dir.exists() and page_dir != self.save_path:
+            dir_name = f"{original_dir_name}_{counter}"
+            page_dir = self.save_path / dir_name
+            counter += 1
+        
+        # Create the directory
+        page_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Create media subdirectories
+        if 'images' in self.media_types:
+            (page_dir / 'images').mkdir(exist_ok=True)
+        if 'videos' in self.media_types:
+            (page_dir / 'videos').mkdir(exist_ok=True)
+        if 'audio' in self.media_types:
+            (page_dir / 'audio').mkdir(exist_ok=True)
+        
+        return page_dir
 
     def _find_main_content(self) -> Tag:
         """
@@ -256,11 +449,15 @@ class DocumentProcessor:
         if audio_count > 0:
             print(f"🔊 Found {audio_count} audio files")
 
-    def save_text(self) -> str:
+    def save_text(self, save_path: Path, request: HttpRequest) -> str:
         """
         Extract and save plain text content from the HTML document.
         Focuses on main content areas and removes all HTML markup.
         
+        Args:
+            save_path: Directory path to save the text file
+            request: HttpRequest object for resolving relative URLs
+            
         Returns:
             Extracted plain text string
         """
@@ -291,7 +488,7 @@ class DocumentProcessor:
             href = link.get('href', '')
             if href and link_text:
                 try:
-                    absolute_href = self.request.absolute_source(href)
+                    absolute_href = request.absolute_source(href)
                     link.replace_with(f"{link_text} ({absolute_href})")
                 except Exception:
                     link.replace_with(link_text)
@@ -317,17 +514,21 @@ class DocumentProcessor:
         text = text.strip()
         
         # Save to file
-        text_file = self.save_path.joinpath('content.txt')
+        text_file = save_path.joinpath('content.txt')
         text_file.write_text(text, encoding='utf-8')
         print(f"💾 Saved plain text content: {text_file}")
         print(f"📊 Extracted {len(text)} characters")
         
         return text
 
-    def save_cleaned_html(self):
+    def save_cleaned_html(self, save_path: Path, request: HttpRequest):
         """
         Save a cleaned version of the HTML with only main content and media,
         removing all scripts, stylesheets, and non-content elements.
+        
+        Args:
+            save_path: Directory path to save the HTML file
+            request: HttpRequest object (not currently used, for future enhancements)
         """
         if self.dom is None:
             return
@@ -366,23 +567,25 @@ class DocumentProcessor:
             cleaned_dom = BeautifulSoup(str(new_html), 'html.parser')
         
         # Save cleaned HTML
-        html_file = self.save_path.joinpath('content.html')
+        html_file = save_path.joinpath('content.html')
         html_file.write_bytes(cleaned_dom.prettify(encoding='utf-8'))
         print(f"💾 Saved cleaned HTML: {html_file}")
 
-    def store_media(self, source: DocumentSource) -> None:
+    def store_media(self, source: DocumentSource, save_path: Path, request: HttpRequest) -> None:
         """
         Download and save a media file (image, video, or audio) to disk.
         
         Args:
             source: DocumentSource object containing the media URL and type
+            save_path: Directory path to save the media file
+            request: HttpRequest object for inheriting SSL settings
         """
         # Create a new request for the media file
         req = HttpRequest(
             source.url, 
-            time_out=self.request.timeout, 
-            verify_ssl=self.request.verify_ssl, 
-            ssl_context=self.request.ssl_context,
+            time_out=self.timeout, 
+            verify_ssl=self.verify_ssl, 
+            ssl_context=self.ssl_context,
             fetch_html_only=False  # Allow fetching media files
         )
         
@@ -419,7 +622,7 @@ class DocumentProcessor:
                 
                 # Ensure the file has an extension
                 if local_path.suffix:
-                    full_path = self.save_path.joinpath(local_path)
+                    full_path = save_path.joinpath(local_path)
                     
                     # Create parent directories if needed
                     if not full_path.parent.exists():

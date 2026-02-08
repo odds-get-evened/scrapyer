@@ -129,7 +129,9 @@ class HttpRequest:
             self.add_header('Accept', '*/*')
             
         self.add_header('Accept-Language', 'en-US,en;q=0.9')
-        self.add_header('Accept-Encoding', 'gzip, deflate, br')
+        # Don't request compressed encoding as http.client doesn't auto-decompress
+        # This prevents receiving gzip/deflate/br encoded content that would be garbled
+        self.add_header('Accept-Encoding', 'identity')
         self.add_header('Connection', 'keep-alive')
         
         # Recreate connection to avoid "Request-sent" error on retry

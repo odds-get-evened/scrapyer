@@ -1,6 +1,7 @@
 import secrets
 import re
 import socket
+import ssl
 from http.client import HTTPSConnection, HTTPConnection, HTTPResponse
 from urllib.parse import urlparse, ParseResult, quote_plus
 
@@ -29,9 +30,22 @@ class HttpsProps:
     PORT = 443
 
 class HttpRequest:
-    def __init__(self, url: str, time_out: int = 10):
+    def __init__(self, url: str, time_out: int = 30, verify_ssl: bool = True, ssl_context: ssl.SSLContext = None):
+        """
+        Initialize an HTTP/HTTPS request.
+        
+        Args:
+            url: The URL to request
+            time_out: Timeout in seconds (default: 30)
+            verify_ssl: Enable/disable SSL certificate verification (default: True)
+                       Note: Ignored if ssl_context is provided
+            ssl_context: Custom SSL context for HTTPS connections (default: None)
+                        If provided, this takes precedence over verify_ssl
+        """
         self.url: ParseResult = None
         self.timeout: int = time_out
+        self.verify_ssl: bool = verify_ssl
+        self.ssl_context: ssl.SSLContext = ssl_context
         self.connection: HTTPConnection | HTTPSConnection = None
         self.port: int = HttpProps.PORT
         self.parse(url)
@@ -55,9 +69,32 @@ class HttpRequest:
         host_name = socket.gethostbyname(socket.gethostname())
 
         if self.port == HttpsProps.PORT:
-            self.connection = HTTPSConnection(self.url.netloc, timeout=self.timeout)
+            # Create or use custom SSL context
+            context = self._get_ssl_context()
+            self.connection = HTTPSConnection(self.url.netloc, timeout=self.timeout, context=context)
         else:
             self.connection = HTTPConnection(self.url.netloc, timeout=self.timeout)
+
+    def _get_ssl_context(self) -> ssl.SSLContext:
+        """
+        Get SSL context for HTTPS connections.
+        
+        Returns:
+            SSLContext configured based on verify_ssl setting or custom context
+        """
+        if self.ssl_context is not None:
+            # Use user-provided custom SSL context
+            return self.ssl_context
+        
+        # Create default context
+        context = ssl.create_default_context()
+        
+        if not self.verify_ssl:
+            # Disable certificate verification (useful for development/testing)
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+        
+        return context
 
     def add_header(self, n: str, v: str) -> None:
         self.headers[n] = v

@@ -36,9 +36,31 @@ $ pip install ".[nlp]"
 
 ## Usage
 
+### Basic Usage
+
 ```shell
 $ scrapyer "http://example.com/page?id=12345#yup" /some/place/to/store/files/
 ```
+
+### SSL/TLS Configuration
+
+Scrapyer supports custom SSL/TLS configuration for HTTPS connections, including:
+
+- **SSL certificate verification control** - Enable or disable certificate verification (default: enabled)
+- **Custom SSL contexts** - Provide your own SSL context for advanced use cases
+- **Self-signed certificates** - Work with development environments using self-signed certificates
+- **Custom CA bundles** - Use custom certificate authority bundles for internal/corporate certificates
+- **Client certificate authentication** - Support for mutual TLS authentication
+
+**📖 For detailed SSL configuration examples and usage, see [SSL_USAGE.md](SSL_USAGE.md)**
+
+## Features
+
+- **Web page archiving** - Download and save complete web pages with all assets
+- **SSL/TLS support** - Flexible SSL configuration for secure connections
+- **Retry logic** - Automatic retry with configurable attempts for transient network failures
+- **Timeout handling** - Comprehensive timeout and error handling for robust scraping
+- **Plain text extraction** - Extract clean text content from HTML documents
 
 ## NLP Features
 

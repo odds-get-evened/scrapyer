@@ -339,6 +339,45 @@ class TestEmptyContentHandling(unittest.TestCase):
             # Verify that no directories were created
             subdirs = [d for d in self.save_path.iterdir() if d.is_dir()]
             self.assertEqual(len(subdirs), 0, "No directories should be created for empty content")
+    
+    def test_empty_page_no_base_directory_created(self):
+        """Test that even the base save_path directory is not created for empty content when it doesn't exist"""
+        # Use a non-existent directory
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create a path that doesn't exist yet
+            new_save_path = Path(tmpdir) / 'nonexistent' / 'subdir'
+            
+            # HTML with no meaningful content
+            empty_html = """
+            <html>
+            <head><title>Empty Page</title></head>
+            <body>
+                <script>console.log("test");</script>
+            </body>
+            </html>
+            """
+            
+            with patch('scrapyer.httprequest.HTTPConnection') as mock_http_conn:
+                mock_conn_instance = Mock()
+                mock_http_conn.return_value = mock_conn_instance
+                
+                mock_response = self._create_mock_response(empty_html)
+                mock_conn_instance.getresponse.return_value = mock_response
+                
+                request = HttpRequest("http://example.com/empty", time_out=30)
+                
+                proc = DocumentProcessor(
+                    request, 
+                    new_save_path,
+                    media_types=[]
+                )
+                
+                # Process the page
+                proc._process_single_page("http://example.com/empty", new_save_path)
+                
+                # Verify that the directory was not created at all
+                self.assertFalse(new_save_path.exists(), "Base directory should not be created for empty content")
 
 
 if __name__ == '__main__':

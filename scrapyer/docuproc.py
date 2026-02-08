@@ -274,8 +274,8 @@ class DocumentProcessor:
         Returns:
             String filename for the content file in format content_<hash>.txt
         """
-        # Generate hash of content
-        content_hash = hashlib.sha256(content.encode('utf-8')).hexdigest()[:16]
+        # Generate hash of content (using 32 characters for lower collision risk)
+        content_hash = hashlib.sha256(content.encode('utf-8')).hexdigest()[:32]
         
         # Generate filename: content_<hash>.txt
         filename = f"content_{content_hash}.txt"
@@ -414,7 +414,8 @@ class DocumentProcessor:
             request: HttpRequest object for resolving relative URLs
             
         Returns:
-            Extracted plain text string
+            Extracted plain text string, or empty string if no content was found.
+            When empty string is returned, no file is created.
         """
         if self.dom is None:
             return ""

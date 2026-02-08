@@ -3,8 +3,9 @@ import socket
 import ssl
 from pathlib import Path
 from time import sleep
+from typing import List
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 from scrapyer.docusource import DocumentSource, SourceType
 from scrapyer.httprequest import HttpRequest
@@ -17,213 +18,437 @@ NETWORK_EXCEPTIONS = (TimeoutError, socket.gaierror, ssl.SSLError, ConnectionErr
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 5
 
+# HTML elements to remove (non-content)
+EXCLUDED_ELEMENTS = ['script', 'style', 'nav', 'header', 'footer', 'aside', 'noscript', 'iframe']
+
+# Main content selectors (in priority order)
+CONTENT_SELECTORS = [
+    'article',
+    'main',
+    '[role="main"]',
+    '.article-content',
+    '.post-content',
+    '.entry-content',
+    '#content',
+    '.content',
+    '#main',
+    '.main'
+]
+
 
 class DocumentProcessor:
-    def __init__(self, req: HttpRequest, p: Path):
+    def __init__(self, req: HttpRequest, p: Path, 
+                 strip_html: bool = True, 
+                 preserve_structure: bool = False,
+                 media_types: List[str] = None):
+        """
+        Initialize the document processor for extracting main content from web pages.
+        
+        Args:
+            req: HttpRequest object configured with the target URL
+            p: Path where extracted content should be saved
+            strip_html: Remove all HTML tags and extract plain text (default: True)
+            preserve_structure: Keep basic structure like headings and paragraphs (default: False)
+            media_types: List of media types to extract (e.g., ['images', 'videos', 'audio'])
+        """
         self.dom: BeautifulSoup = None
         self.is_processing: bool = False
         self.save_path: Path = p
-
-        self.sources: list[DocumentSource] = []
+        self.strip_html: bool = strip_html
+        self.preserve_structure: bool = preserve_structure
+        self.media_types: List[str] = media_types or ['images', 'videos', 'audio']
+        
+        # Store only media sources (no scripts or stylesheets)
+        self.media_sources: list[DocumentSource] = []
         
         self.request: HttpRequest = req
 
-        # create storage path
+        # Create storage directories
         self.create_paths()
 
     def start(self):
+        """
+        Main processing loop: fetch HTML, extract content and media, save to disk.
+        """
         self.is_processing = True
+        print("🌐 Fetching web page...")
 
         while self.is_processing is True:
             try:
                 response = self.request.get()
+                
+                # Validate that we received HTML content
+                content_type = response.getheader('Content-Type', '')
+                if 'text/html' not in content_type.lower() and 'application/xhtml' not in content_type.lower():
+                    print(f"⚠️  Warning: Response content type is '{content_type}', expected HTML")
+                
+                # Parse the HTML content
                 self.dom = BeautifulSoup(response.read(), 'html.parser')
-                print(f"status: {response.status} {response.reason}")
+                print(f"✅ Status: {response.status} {response.reason}")
 
-                # save source files to storage directory
-                self.pop_sources()
+                # Extract media sources from the page (images, videos, audio)
+                self.extract_media_sources()
+                
             except NETWORK_EXCEPTIONS as e:
+                print(f"❌ Network error: {e}")
                 sleep(self.request.timeout)
                 continue
 
             self.is_processing = False
 
-        [self.store_url(source) for source in self.sources]
+        # Download all media files
+        if self.media_sources:
+            print(f"\n📥 Downloading {len(self.media_sources)} media files...")
+            for source in self.media_sources:
+                self.store_media(source)
 
-        self.save_html()
+        # Extract and save text content
+        print("\n📝 Extracting text content...")
+        self.save_text()
+        
+        # Optionally save cleaned HTML
+        if not self.strip_html or self.preserve_structure:
+            self.save_cleaned_html()
+        
+        print("\n✨ Processing complete!")
 
-    def save_html(self):
-        html_file = self.save_path.joinpath('index.html')
-        if not html_file.exists():
-            html_file.write_bytes(self.dom.prettify(encoding='utf-8'))
+    def extract_media_sources(self):
+        """
+        Extract media elements (images, videos, audio) from the main content area.
+        Ignores scripts, stylesheets, and other non-content resources.
+        """
+        if self.dom is None:
+            return
+        
+        # Find the main content area first
+        main_content = self._find_main_content()
+        
+        # Extract images if requested
+        if 'images' in self.media_types:
+            self._extract_images(main_content)
+        
+        # Extract videos if requested
+        if 'videos' in self.media_types:
+            self._extract_videos(main_content)
+        
+        # Extract audio if requested
+        if 'audio' in self.media_types:
+            self._extract_audio(main_content)
 
-        self.localize_html()
+    def _find_main_content(self) -> Tag:
+        """
+        Find the main content area of the page using common selectors.
+        
+        Returns:
+            BeautifulSoup Tag object containing the main content, or body/root if not found
+        """
+        # Try each selector in priority order
+        for selector in CONTENT_SELECTORS:
+            main_content = self.dom.select_one(selector)
+            if main_content:
+                print(f"🎯 Found main content using selector: {selector}")
+                return main_content
+        
+        # Fallback to body or entire document
+        print("📄 Using entire document as main content")
+        return self.dom.body if self.dom.body else self.dom
+
+    def _extract_images(self, content: Tag):
+        """Extract image URLs from <img>, <picture>, and srcset attributes."""
+        img_count = 0
+        
+        # Standard <img> tags
+        for img in content.find_all('img'):
+            src = img.get('src') or img.get('data-src')
+            if src:
+                try:
+                    img_url = self.request.absolute_source(src)
+                    self.media_sources.append(DocumentSource(SourceType.img, img_url))
+                    img_count += 1
+                except Exception as e:
+                    print(f"⚠️  Could not process image: {src} - {e}")
+            
+            # Handle srcset for responsive images
+            srcset = img.get('srcset')
+            if srcset:
+                for src_item in srcset.split(','):
+                    src_url = src_item.strip().split(' ')[0]
+                    if src_url:
+                        try:
+                            img_url = self.request.absolute_source(src_url)
+                            self.media_sources.append(DocumentSource(SourceType.img, img_url))
+                            img_count += 1
+                        except Exception as e:
+                            print(f"⚠️  Could not process srcset image: {src_url} - {e}")
+        
+        # <picture> elements with <source> tags
+        for picture in content.find_all('picture'):
+            for source in picture.find_all('source'):
+                srcset = source.get('srcset')
+                if srcset:
+                    src_url = srcset.split(',')[0].strip().split(' ')[0]
+                    try:
+                        img_url = self.request.absolute_source(src_url)
+                        self.media_sources.append(DocumentSource(SourceType.img, img_url))
+                        img_count += 1
+                    except Exception as e:
+                        print(f"⚠️  Could not process picture source: {src_url} - {e}")
+        
+        if img_count > 0:
+            print(f"🖼️  Found {img_count} images")
+
+    def _extract_videos(self, content: Tag):
+        """Extract video URLs from <video> and embedded players."""
+        video_count = 0
+        
+        # <video> tags
+        for video in content.find_all('video'):
+            # Direct src attribute
+            src = video.get('src')
+            if src:
+                try:
+                    video_url = self.request.absolute_source(src)
+                    self.media_sources.append(DocumentSource(SourceType.video, video_url))
+                    video_count += 1
+                except Exception as e:
+                    print(f"⚠️  Could not process video: {src} - {e}")
+            
+            # <source> child elements
+            for source in video.find_all('source'):
+                src = source.get('src')
+                if src:
+                    try:
+                        video_url = self.request.absolute_source(src)
+                        self.media_sources.append(DocumentSource(SourceType.video, video_url))
+                        video_count += 1
+                    except Exception as e:
+                        print(f"⚠️  Could not process video source: {src} - {e}")
+        
+        if video_count > 0:
+            print(f"🎬 Found {video_count} videos")
+
+    def _extract_audio(self, content: Tag):
+        """Extract audio URLs from <audio> tags."""
+        audio_count = 0
+        
+        for audio in content.find_all('audio'):
+            # Direct src attribute
+            src = audio.get('src')
+            if src:
+                try:
+                    audio_url = self.request.absolute_source(src)
+                    self.media_sources.append(DocumentSource(SourceType.audio, audio_url))
+                    audio_count += 1
+                except Exception as e:
+                    print(f"⚠️  Could not process audio: {src} - {e}")
+            
+            # <source> child elements
+            for source in audio.find_all('source'):
+                src = source.get('src')
+                if src:
+                    try:
+                        audio_url = self.request.absolute_source(src)
+                        self.media_sources.append(DocumentSource(SourceType.audio, audio_url))
+                        audio_count += 1
+                    except Exception as e:
+                        print(f"⚠️  Could not process audio source: {src} - {e}")
+        
+        if audio_count > 0:
+            print(f"🔊 Found {audio_count} audio files")
 
     def save_text(self) -> str:
         """
-        Extracts plain text content from the HTML document.
-        Focuses on main content areas and preserves link URLs in readable format.
-        Returns plain text string without HTML markup.
+        Extract and save plain text content from the HTML document.
+        Focuses on main content areas and removes all HTML markup.
+        
+        Returns:
+            Extracted plain text string
         """
         if self.dom is None:
             return ""
         
-        # remove script and style elements from parsing
-        for element in self.dom(['script', 'style', 'nav', 'header', 'footer', 'aside']):
+        # Clone the DOM to avoid modifying the original
+        text_dom = BeautifulSoup(str(self.dom), 'html.parser')
+        
+        # Remove all non-content elements
+        for element in text_dom(EXCLUDED_ELEMENTS):
             element.decompose()
         
-        # try to find main content area (common patterns)
+        # Find main content area
         main_content = None
-        content_selectors = ['main', 'article', '[role="main"]', '.content', '#content', '.main', '#main']
-        
-        for selector in content_selectors:
-            main_content = self.dom.select_one(selector)
+        for selector in CONTENT_SELECTORS:
+            main_content = text_dom.select_one(selector)
             if main_content:
                 break
         
-        # if no main content found, use body or entire document
+        # Fallback to body or entire document
         if main_content is None:
-            main_content = self.dom.body if self.dom.body else self.dom
+            main_content = text_dom.body if text_dom.body else text_dom
         
-        # convert links to readable format: "link text (URL)"
+        # Convert links to readable format: "link text (URL)"
         for link in main_content.find_all('a'):
             link_text = link.get_text(strip=True)
             href = link.get('href', '')
-            if href:
-                # make absolute URL if relative
-                absolute_href = self.request.absolute_source(href)
-                # replace link element with formatted text
-                link.replace_with(f"{link_text} ({absolute_href})")
+            if href and link_text:
+                try:
+                    absolute_href = self.request.absolute_source(href)
+                    link.replace_with(f"{link_text} ({absolute_href})")
+                except Exception:
+                    link.replace_with(link_text)
         
-        # extract text with spacing between elements
-        text = main_content.get_text(separator='\n', strip=True)
+        if self.preserve_structure:
+            # Keep basic structure with line breaks for headings and paragraphs
+            text_parts = []
+            for element in main_content.descendants:
+                if element.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
+                    text_parts.append(f"\n\n{'#' * int(element.name[1])} {element.get_text(strip=True)}\n")
+                elif element.name == 'p':
+                    text_parts.append(f"\n{element.get_text(strip=True)}\n")
+                elif element.name in ['li']:
+                    text_parts.append(f"• {element.get_text(strip=True)}\n")
+            text = ''.join(text_parts)
+        else:
+            # Extract plain text with spacing between elements
+            text = main_content.get_text(separator='\n', strip=True)
         
-        # clean up excessive whitespace and blank lines
+        # Clean up excessive whitespace and blank lines
         text = re.sub(r'\n\s*\n+', '\n\n', text)
         text = re.sub(r' +', ' ', text)
+        text = text.strip()
         
-        # save to file
+        # Save to file
         text_file = self.save_path.joinpath('content.txt')
         text_file.write_text(text, encoding='utf-8')
-        print("saved plain text content (content.txt)")
+        print(f"💾 Saved plain text content: {text_file}")
+        print(f"📊 Extracted {len(text)} characters")
         
         return text
 
-    def localize_html(self):
-        html_file = self.save_path.joinpath('index.html')
-        try:
-            contents = html_file.read_bytes()
-            html_text = contents.decode('utf-8', errors='ignore')
-
-            # iterate thru all saved source files
-            for p in self.save_path.rglob('*.*'):
-                if p.suffix != '.html':
-                    rel_path = p.relative_to(self.save_path)
-                    # make slashes web friendly
-                    rel_urlized = rel_path.as_posix()
-
-                    # Create a safer regex pattern that escapes special characters
-                    # re.escape ensures all special regex chars are properly escaped
-                    escaped_path = re.escape(rel_urlized)
-                    # Look for the path in attribute values (src, href, etc.)
-                    # Pattern matches: attribute="...path..." where path might have absolute URL prefix
-                    pattern = r'((?:src|href|data-src|data-href)=["\'])([^"\']*' + escaped_path + r')(["\'])'
-                    
-                    # Use re.sub with lambda to replace all occurrences with the local path
-                    html_text = re.sub(pattern, lambda m: m.group(1) + rel_urlized + m.group(3), html_text, flags=re.IGNORECASE)
-            
-            # make content text to bytes
-            revised = html_text.encode('utf-8')
-            # remove old file
-            html_file.unlink()
-            html_file.write_bytes(revised)
-            print("finalized document (index.html)")
-        except Exception as e:
-            print(f"Warning: Could not localize HTML: {e}")
-            # If localization fails, at least we have the original HTML saved
-
-    def create_paths(self) -> None:
-        if not self.save_path.exists():
-            self.save_path.mkdir(exist_ok=True, parents=True)
-
-    def store_url(self, s: DocumentSource, parent_dirname = None) -> None:
-        req = HttpRequest(s.url, time_out=self.request.timeout, 
-                         verify_ssl=self.request.verify_ssl, 
-                         ssl_context=self.request.ssl_context)
+    def save_cleaned_html(self):
+        """
+        Save a cleaned version of the HTML with only main content and media,
+        removing all scripts, stylesheets, and non-content elements.
+        """
+        if self.dom is None:
+            return
         
-        # Retry logic for transient SSL/timeout errors
+        # Clone the DOM to avoid modifying the original
+        cleaned_dom = BeautifulSoup(str(self.dom), 'html.parser')
+        
+        # Remove all non-content elements
+        for element in cleaned_dom(EXCLUDED_ELEMENTS):
+            element.decompose()
+        
+        # Remove <link> tags (stylesheets, fonts, etc.)
+        for link in cleaned_dom.find_all('link'):
+            link.decompose()
+        
+        # Find and extract only main content
+        main_content = None
+        for selector in CONTENT_SELECTORS:
+            main_content = cleaned_dom.select_one(selector)
+            if main_content:
+                break
+        
+        if main_content:
+            # Create a new minimal HTML structure with only the main content
+            new_html = cleaned_dom.new_tag('html')
+            new_head = cleaned_dom.new_tag('head')
+            new_title = cleaned_dom.new_tag('title')
+            new_title.string = cleaned_dom.title.string if cleaned_dom.title else "Extracted Content"
+            new_head.append(new_title)
+            new_html.append(new_head)
+            
+            new_body = cleaned_dom.new_tag('body')
+            new_body.append(main_content)
+            new_html.append(new_body)
+            
+            cleaned_dom = BeautifulSoup(str(new_html), 'html.parser')
+        
+        # Save cleaned HTML
+        html_file = self.save_path.joinpath('content.html')
+        html_file.write_bytes(cleaned_dom.prettify(encoding='utf-8'))
+        print(f"💾 Saved cleaned HTML: {html_file}")
+
+    def store_media(self, source: DocumentSource) -> None:
+        """
+        Download and save a media file (image, video, or audio) to disk.
+        
+        Args:
+            source: DocumentSource object containing the media URL and type
+        """
+        # Create a new request for the media file
+        req = HttpRequest(
+            source.url, 
+            time_out=self.request.timeout, 
+            verify_ssl=self.request.verify_ssl, 
+            ssl_context=self.request.ssl_context,
+            fetch_html_only=False  # Allow fetching media files
+        )
+        
         retry_count = 0
         
         while retry_count < MAX_RETRIES:
             try:
                 res = req.get()
 
-                # don't bother with 404s - no point retrying them
+                # Skip 404 errors - no point retrying
                 if res.status == 404:
+                    print(f"⚠️  Not found (404): {source.url}")
+                    break
+                
+                if res.status != 200:
+                    print(f"⚠️  HTTP {res.status}: {source.url}")
                     break
                 
                 content = res.read()
 
-                local_path = Path(req.url.path[1:])
-                if parent_dirname is not None:
-                    local_path = Path(parent_dirname, req.url.path[1:])
+                # Determine subdirectory based on media type
+                if source.type == SourceType.img:
+                    subdir = 'images'
+                elif source.type == SourceType.video:
+                    subdir = 'videos'
+                elif source.type == SourceType.audio:
+                    subdir = 'audio'
+                else:
+                    subdir = 'media'
 
-                # has to have a file extension
-                if local_path.suffix != "":
-                    local_path = self.save_path.joinpath(local_path)
-                    if not local_path.exists():
-                        try:
-                            local_path.parent.mkdir(parents=True)
-                        except FileExistsError as e:
-                            pass
-                    # store the files
-                    print(f"stored: {local_path}")
-                    local_path.write_bytes(content)
+                # Extract filename from URL path
+                local_path = Path(req.url.path[1:]) if req.url.path[1:] else Path('unnamed')
+                local_path = Path(subdir, local_path.name)
+                
+                # Ensure the file has an extension
+                if local_path.suffix:
+                    full_path = self.save_path.joinpath(local_path)
+                    
+                    # Create parent directories if needed
+                    if not full_path.parent.exists():
+                        full_path.parent.mkdir(parents=True, exist_ok=True)
+                    
+                    # Save the media file
+                    full_path.write_bytes(content)
+                    print(f"  ✓ {local_path}")
+                
                 break  # Success, exit retry loop
                 
             except NETWORK_EXCEPTIONS as e:
                 retry_count += 1
                 if retry_count < MAX_RETRIES:
-                    print(f"Timeout/network error for {s.url}, retrying ({retry_count}/{MAX_RETRIES})...")
+                    print(f"  ⚠️  Network error for {source.url}, retrying ({retry_count}/{MAX_RETRIES})...")
                     sleep(RETRY_DELAY_SECONDS)
                 else:
-                    print(f"Failed to retrieve {s.url} after {MAX_RETRIES} attempts: {e}")
+                    print(f"  ❌ Failed after {MAX_RETRIES} attempts: {source.url}")
                     break
 
-
-    def pop_sources(self):
-        script_tags = self.dom.find_all('script')
-        link_tags = self.dom.find_all('link')
-        img_tags = self.dom.find_all('img')
-
-        # @todo scan css for img URLs
-
-        # @todo find inline style and script tags, save as files, and remove tags from body
-
-        for it in img_tags:
-            try:
-                img = self.request.absolute_source(it['src'])
-                self.sources.append(DocumentSource(SourceType.img, img))
-                # self.store_url(img, parent_dirname='images')
-            except KeyError as e:
-                # no src attribute found
-                pass
-
-        for st in script_tags:
-            try:
-                # `src` attribute present so get javascript file content of URL
-                js = self.request.absolute_source(st['src'])
-                self.sources.append(DocumentSource(SourceType.js, js))
-                # self.store_url(js, parent_dirname='js')
-            except KeyError as e:
-                # src attribute was never found in script tags
-                pass
-
-        for lt in link_tags:
-            try:
-                lt['rel'].index('stylesheet')
-                lh = self.request.absolute_source(lt['href'])
-                self.sources.append(DocumentSource(SourceType.css, lh))
-                # self.store_url(lh, parent_dirname='css')
-            except ValueError as e:
-                pass
+    def create_paths(self) -> None:
+        """Create the save directory and media subdirectories if they don't exist."""
+        if not self.save_path.exists():
+            self.save_path.mkdir(exist_ok=True, parents=True)
+        
+        # Create media subdirectories
+        if 'images' in self.media_types:
+            self.save_path.joinpath('images').mkdir(exist_ok=True)
+        if 'videos' in self.media_types:
+            self.save_path.joinpath('videos').mkdir(exist_ok=True)
+        if 'audio' in self.media_types:
+            self.save_path.joinpath('audio').mkdir(exist_ok=True)

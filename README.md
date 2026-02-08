@@ -42,6 +42,25 @@ $ pip install ".[nlp]"
 $ scrapyer "http://example.com/page?id=12345#yup" /some/place/to/store/files/
 ```
 
+### Web Crawling
+
+Scrapyer can crawl and extract content from multiple linked pages:
+
+```shell
+# Crawl all linked pages from the initial URL
+$ scrapyer http://example.com /path/to/save --crawl
+
+# Limit crawling to a specific number of pages
+$ scrapyer http://example.com /path/to/save --crawl --crawl-limit 10
+```
+
+When crawling is enabled:
+- Scrapyer extracts all links from each page
+- Only links from the same domain are followed
+- Each page's content is saved in its own subdirectory
+- Visited URLs are tracked to avoid duplicates
+- Crawling continues until the limit is reached or no more links are found
+
 ### SSL/TLS Configuration
 
 Scrapyer supports custom SSL/TLS configuration for HTTPS connections, including:
@@ -64,6 +83,9 @@ $ scrapyer https://example.com /path/to/save --ssl-cert /path/to/cert.pem
 # Set custom timeout
 $ scrapyer http://example.com /path/to/save --timeout 60
 
+# Combine crawling with other options
+$ scrapyer https://example.com /path/to/save --crawl --crawl-limit 5 --timeout 60 --no-verify-ssl
+
 # View all options
 $ scrapyer --help
 ```
@@ -73,10 +95,13 @@ $ scrapyer --help
 ## Features
 
 - **Web page archiving** - Download and save complete web pages with all assets
+- **Web crawling** - Automatically discover and extract content from linked pages on the same domain
+- **Crawl limiting** - Control the scope of crawling with configurable page limits
 - **SSL/TLS support** - Flexible SSL configuration for secure connections
 - **Retry logic** - Automatic retry with configurable attempts for transient network failures
 - **Timeout handling** - Comprehensive timeout and error handling for robust scraping
 - **Plain text extraction** - Extract clean text content from HTML documents
+- **Organized output** - Each crawled page is saved in its own subdirectory with unique naming
 
 ## NLP Features
 

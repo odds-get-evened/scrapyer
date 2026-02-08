@@ -87,9 +87,6 @@ class DocumentProcessor:
         
         self.request: HttpRequest = req
 
-        # Create storage directories
-        self.create_paths()
-
     def start(self):
         """
         Main processing loop: fetch HTML, extract content and media, save to disk.
@@ -185,10 +182,6 @@ class DocumentProcessor:
         # Extract and save text content
         print("\n📝 Extracting text content...")
         self.save_text(save_path, request)
-        
-        # Optionally save cleaned HTML
-        if not self.strip_html or self.preserve_structure:
-            self.save_cleaned_html(save_path, request)
 
     def extract_media_sources(self):
         """
@@ -259,11 +252,8 @@ class DocumentProcessor:
                 if clean_url in self.visited_urls or any(clean_url == url for url, _ in self.url_queue):
                     continue
                 
-                # Create a subdirectory for this URL
-                page_dir = self._create_page_directory(clean_url)
-                
-                # Queue the link for processing
-                self.url_queue.append((clean_url, page_dir))
+                # Queue the link for processing (use base save_path for all)
+                self.url_queue.append((clean_url, self.save_path))
                 links_queued += 1
                 
             except Exception as e:
@@ -274,98 +264,21 @@ class DocumentProcessor:
         if links_found > 0:
             print(f"🔗 Found {links_found} links on page, queued {links_queued} new links for crawling")
     
-    def _create_page_directory(self, url: str) -> Path:
+    def _generate_content_filename(self, content: str) -> str:
         """
-        Create a unique directory name for a URL based on its path.
+        Generate a unique filename for the text content based on hash of content.
         
         Args:
-            url: The URL to create a directory for
+            content: The text content to hash
             
         Returns:
-            Path object for the page-specific directory
+            String filename for the content file in format content_<hash>.txt
         """
-        parsed = urlparse(url)
+        # Generate hash of content (using 32 characters for lower collision risk)
+        content_hash = hashlib.sha256(content.encode('utf-8')).hexdigest()[:32]
         
-        # Create a safe directory name from the URL path
-        path_parts = [p for p in parsed.path.split('/') if p]
-        
-        if not path_parts:
-            # Root page
-            dir_name = "index"
-        else:
-            # Join path parts with underscores, replace unsafe characters
-            dir_name = '_'.join(path_parts)
-            dir_name = re.sub(r'[^\w\-_.]', '_', dir_name)
-            # Limit length
-            if len(dir_name) > 100:
-                dir_name = dir_name[:100]
-        
-        # Add query string hash if present to make it unique
-        if parsed.query:
-            # Use SHA-256 for better collision resistance
-            query_hash = hashlib.sha256(parsed.query.encode()).hexdigest()[:8]
-            dir_name = f"{dir_name}_{query_hash}"
-        
-        # Create the directory path
-        page_dir = self.save_path / dir_name
-        
-        # Handle duplicate directory names by appending a number
-        counter = 1
-        original_dir_name = dir_name
-        while page_dir.exists() and page_dir != self.save_path:
-            dir_name = f"{original_dir_name}_{counter}"
-            page_dir = self.save_path / dir_name
-            counter += 1
-        
-        # Create the directory
-        page_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Create media subdirectories
-        if 'images' in self.media_types:
-            (page_dir / 'images').mkdir(exist_ok=True)
-        if 'videos' in self.media_types:
-            (page_dir / 'videos').mkdir(exist_ok=True)
-        if 'audio' in self.media_types:
-            (page_dir / 'audio').mkdir(exist_ok=True)
-        
-        return page_dir
-
-    def _generate_content_filename(self, request: HttpRequest) -> str:
-        """
-        Generate a unique filename for the text content based on the URL.
-        
-        Args:
-            request: HttpRequest object containing the URL
-            
-        Returns:
-            String filename for the content file
-        """
-        # Get the full URL
-        full_url = request.get_root_url() + request.build_url_path()
-        parsed = urlparse(full_url)
-        
-        # Try to extract a meaningful name from the URL path
-        path_parts = [p for p in parsed.path.split('/') if p]
-        
-        if not path_parts:
-            # Root page - use index
-            base_name = "index"
-        else:
-            # Use the last path component, remove extension if present
-            last_part = path_parts[-1]
-            # Remove file extension if present (e.g., .html, .php)
-            base_name = re.sub(r'\.(html?|php|aspx?|jsp)$', '', last_part, flags=re.IGNORECASE)
-            # Clean up the name - only allow word chars, hyphens, and underscores
-            base_name = re.sub(r'[^\w\-_]', '_', base_name)
-            # Limit length
-            if len(base_name) > 50:
-                base_name = base_name[:50]
-        
-        # Add URL hash to ensure uniqueness
-        url_hash = hashlib.sha256(full_url.encode()).hexdigest()[:8]
-        
-        # Generate filename: basename_hash_content.txt
-        filename = f"{base_name}_{url_hash}_content.txt"
+        # Generate filename: content_<hash>.txt
+        filename = f"content_{content_hash}.txt"
         
         return filename
 
@@ -494,13 +407,15 @@ class DocumentProcessor:
         """
         Extract and save plain text content from the HTML document.
         Focuses on main content areas and removes all HTML markup.
+        Only creates a file if there is actual content.
         
         Args:
             save_path: Directory path to save the text file
             request: HttpRequest object for resolving relative URLs
             
         Returns:
-            Extracted plain text string
+            Extracted plain text string, or empty string if no content was found.
+            When empty string is returned, no file is created.
         """
         if self.dom is None:
             return ""
@@ -554,8 +469,17 @@ class DocumentProcessor:
         text = re.sub(r' +', ' ', text)
         text = text.strip()
         
-        # Generate unique filename based on URL
-        filename = self._generate_content_filename(request)
+        # Only create file if there is actual content
+        if not text:
+            print("⚠️  No text content found - skipping file creation")
+            return ""
+        
+        # Generate unique filename based on content hash
+        filename = self._generate_content_filename(text)
+        
+        # Ensure the save directory exists
+        if not save_path.exists():
+            save_path.mkdir(parents=True, exist_ok=True)
         
         # Save to file
         text_file = save_path.joinpath(filename)
@@ -690,16 +614,3 @@ class DocumentProcessor:
                 else:
                     print(f"  ❌ Failed after {MAX_RETRIES} attempts: {source.url}")
                     break
-
-    def create_paths(self) -> None:
-        """Create the save directory and media subdirectories if they don't exist."""
-        if not self.save_path.exists():
-            self.save_path.mkdir(exist_ok=True, parents=True)
-        
-        # Create media subdirectories
-        if 'images' in self.media_types:
-            self.save_path.joinpath('images').mkdir(exist_ok=True)
-        if 'videos' in self.media_types:
-            self.save_path.joinpath('videos').mkdir(exist_ok=True)
-        if 'audio' in self.media_types:
-            self.save_path.joinpath('audio').mkdir(exist_ok=True)

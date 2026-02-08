@@ -115,33 +115,51 @@ class TestCrawlingLogic(unittest.TestCase):
         # we should have visited multiple pages
         self.assertGreater(len(processor.visited_urls), 1)
     
-    def test_create_page_directory(self):
-        """Test that unique directories are created for each URL"""
+    def test_no_page_directories_created(self):
+        """Test that no page-specific directories are created during crawling"""
         # Use a unique test directory
         import tempfile
         with tempfile.TemporaryDirectory() as tmpdir:
             test_path = Path(tmpdir) / 'test_crawl'
             test_path.mkdir(parents=True, exist_ok=True)
             
-            request = HttpRequest('http://example.com', time_out=30)
-            processor = DocumentProcessor(
-                request,
-                test_path,
-                crawl=True,
-                timeout=30,
-                verify_ssl=True,
-                ssl_context=None
-            )
+            from unittest.mock import patch, Mock
             
-            # Test creating directories for different URLs
-            dir1 = processor._create_page_directory('http://example.com/')
-            self.assertTrue(dir1.name == 'index')
+            # Mock HTML response
+            html_content = '<html><body><p>Test content</p></body></html>'
             
-            dir2 = processor._create_page_directory('http://example.com/about')
-            self.assertTrue('about' in dir2.name)
-            
-            dir3 = processor._create_page_directory('http://example.com/blog/post-1')
-            self.assertTrue('blog' in dir3.name or 'post' in dir3.name)
+            with patch('scrapyer.httprequest.HTTPConnection') as mock_http_conn:
+                mock_response = Mock()
+                mock_response.status = 200
+                mock_response.reason = 'OK'
+                mock_response.getheader.return_value = 'text/html'
+                mock_response.read.return_value = html_content.encode('utf-8')
+                
+                mock_conn_instance = Mock()
+                mock_conn_instance.getresponse.return_value = mock_response
+                mock_http_conn.return_value = mock_conn_instance
+                
+                request = HttpRequest('http://example.com', time_out=30)
+                processor = DocumentProcessor(
+                    request,
+                    test_path,
+                    crawl=False,
+                    timeout=30,
+                    verify_ssl=True,
+                    ssl_context=None,
+                    media_types=[]
+                )
+                
+                # Process a single page
+                processor._process_single_page('http://example.com/', test_path)
+                
+                # Check that only the base directory exists, no subdirectories
+                subdirs = [d for d in test_path.iterdir() if d.is_dir()]
+                self.assertEqual(len(subdirs), 0, "No subdirectories should be created")
+                
+                # Check that a content file was created directly in test_path
+                content_files = list(test_path.glob("content_*.txt"))
+                self.assertEqual(len(content_files), 1, "Should have exactly one content file")
     
     @patch('scrapyer.httprequest.HTTPConnection')
     def test_crawl_limit_respected(self, mock_http_conn):

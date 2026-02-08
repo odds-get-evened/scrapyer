@@ -147,7 +147,9 @@ class DocumentProcessor:
             self.save_path.mkdir(exist_ok=True, parents=True)
 
     def store_url(self, s: DocumentSource, parent_dirname = None) -> None:
-        req = HttpRequest(s.url, time_out=self.request.timeout)
+        req = HttpRequest(s.url, time_out=self.request.timeout, 
+                         verify_ssl=self.request.verify_ssl, 
+                         ssl_context=self.request.ssl_context)
         
         # Retry logic for transient SSL/timeout errors
         retry_count = 0

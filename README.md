@@ -36,9 +36,39 @@ $ pip install ".[nlp]"
 
 ## Usage
 
+### Basic Usage
+
 ```shell
 $ scrapyer "http://example.com/page?id=12345#yup" /some/place/to/store/files/
 ```
+
+### SSL/TLS Configuration
+
+Scrapyer now supports custom SSL/TLS configuration for HTTPS connections:
+
+```python
+from scrapyer.httprequest import HttpRequest
+from scrapyer.docuproc import DocumentProcessor
+from pathlib import Path
+import ssl
+
+# Default: SSL verification enabled (recommended)
+request = HttpRequest("https://example.com")
+
+# Disable SSL verification (development/testing only)
+request = HttpRequest("https://self-signed.example.com", verify_ssl=False)
+
+# Custom SSL context (advanced)
+context = ssl.create_default_context()
+context.load_verify_locations('/path/to/ca-bundle.crt')
+request = HttpRequest("https://example.com", ssl_context=context)
+
+# Process the page
+doc = DocumentProcessor(request, Path("/save/path"))
+doc.start()
+```
+
+For detailed SSL configuration examples, see [SSL_USAGE.md](SSL_USAGE.md).
 
 ## NLP Features
 

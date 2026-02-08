@@ -1,8 +1,53 @@
 # SSL Configuration Guide
 
-Scrapyer now supports custom SSL/TLS configuration for HTTPS connections. This guide explains how to use these features.
+Scrapyer now supports custom SSL/TLS configuration for HTTPS connections. This guide explains how to use these features both from the command line and programmatically.
 
-## Basic Usage
+## Command Line Usage
+
+### Default Behavior (SSL Verification Enabled)
+
+By default, scrapyer performs full SSL certificate verification:
+
+```bash
+scrapyer https://example.com /path/to/save
+```
+
+### Disable SSL Verification
+
+For development/testing with self-signed certificates, use the `--no-verify-ssl` flag:
+
+```bash
+scrapyer https://localhost:8443 /path/to/save --no-verify-ssl
+```
+
+**⚠️ Warning:** Disabling SSL verification should only be used for development/testing. Never disable SSL verification in production as it makes your application vulnerable to man-in-the-middle attacks.
+
+### Use Custom SSL Certificate
+
+For self-signed certificates or custom CA bundles, use the `--ssl-cert` option:
+
+```bash
+# Use a self-signed certificate
+scrapyer https://localhost:8443 /path/to/save --ssl-cert /path/to/self-signed.crt
+
+# Use a custom CA bundle
+scrapyer https://internal.company.com /path/to/save --ssl-cert /path/to/ca-bundle.pem
+```
+
+### Other Options
+
+```bash
+# Set custom timeout (in seconds)
+scrapyer https://example.com /path/to/save --timeout 60
+
+# Combine multiple options
+scrapyer https://example.com /path/to/save --timeout 45 --ssl-cert /path/to/cert.pem
+
+# View all available options
+scrapyer --help
+```
+
+## Programmatic Usage
 
 ### Default Behavior (SSL Verification Enabled)
 

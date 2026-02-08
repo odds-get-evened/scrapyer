@@ -264,7 +264,8 @@ class DocumentProcessor:
                 links_queued += 1
                 
             except Exception as e:
-                # Skip problematic URLs
+                # Skip problematic URLs - this is expected for malformed URLs
+                # Could log if needed: print(f"⚠️  Skipping invalid URL {href}: {e}")
                 continue
         
         if links_found > 0:
@@ -299,7 +300,8 @@ class DocumentProcessor:
         # Add query string hash if present to make it unique
         if parsed.query:
             import hashlib
-            query_hash = hashlib.md5(parsed.query.encode()).hexdigest()[:8]
+            # Use SHA-256 for better collision resistance
+            query_hash = hashlib.sha256(parsed.query.encode()).hexdigest()[:8]
             dir_name = f"{dir_name}_{query_hash}"
         
         # Create the directory path

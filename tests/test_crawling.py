@@ -107,7 +107,7 @@ class TestCrawlingLogic(unittest.TestCase):
         # Start processing (this will process multiple pages)
         try:
             processor.start()
-        except:
+        except Exception:
             pass  # Expected to fail when trying to fetch queued pages
         
         # Check that pages were visited (should have processed the initial page + some queued ones)
@@ -182,7 +182,7 @@ class TestCrawlingLogic(unittest.TestCase):
         # Start processing
         try:
             processor.start()
-        except:
+        except Exception:
             pass  # Expected to fail when processing
         
         # Should have visited at most 2 pages

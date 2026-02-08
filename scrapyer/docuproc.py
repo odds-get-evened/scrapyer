@@ -1,3 +1,4 @@
+import hashlib
 import re
 import socket
 import ssl
@@ -301,7 +302,6 @@ class DocumentProcessor:
         
         # Add query string hash if present to make it unique
         if parsed.query:
-            import hashlib
             # Use SHA-256 for better collision resistance
             query_hash = hashlib.sha256(parsed.query.encode()).hexdigest()[:8]
             dir_name = f"{dir_name}_{query_hash}"
@@ -340,8 +340,6 @@ class DocumentProcessor:
         Returns:
             String filename for the content file
         """
-        import hashlib
-        
         # Get the full URL
         full_url = request.get_root_url() + request.build_url_path()
         parsed = urlparse(full_url)
@@ -357,8 +355,8 @@ class DocumentProcessor:
             last_part = path_parts[-1]
             # Remove file extension if present (e.g., .html, .php)
             base_name = re.sub(r'\.(html?|php|aspx?|jsp)$', '', last_part, flags=re.IGNORECASE)
-            # Clean up the name
-            base_name = re.sub(r'[^\w\-_.]', '_', base_name)
+            # Clean up the name - only allow word chars, hyphens, and underscores
+            base_name = re.sub(r'[^\w\-_]', '_', base_name)
             # Limit length
             if len(base_name) > 50:
                 base_name = base_name[:50]

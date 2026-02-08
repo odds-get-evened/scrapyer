@@ -113,7 +113,7 @@ def example_custom_ca_bundle():
     print("Example 5: Custom CA Bundle")
     print("=" * 60)
     
-    url = "https://internal.company.com"
+    url = "https://internal.example.com"
     save_path = Path("/tmp/scrapyer_example_ca_bundle")
     
     # Create context with custom CA bundle

@@ -31,6 +31,17 @@ class HttpsProps:
 
 class HttpRequest:
     def __init__(self, url: str, time_out: int = 30, verify_ssl: bool = True, ssl_context: ssl.SSLContext = None):
+        """
+        Initialize an HTTP/HTTPS request.
+        
+        Args:
+            url: The URL to request
+            time_out: Timeout in seconds (default: 30)
+            verify_ssl: Enable/disable SSL certificate verification (default: True)
+                       Note: Ignored if ssl_context is provided
+            ssl_context: Custom SSL context for HTTPS connections (default: None)
+                        If provided, this takes precedence over verify_ssl
+        """
         self.url: ParseResult = None
         self.timeout: int = time_out
         self.verify_ssl: bool = verify_ssl

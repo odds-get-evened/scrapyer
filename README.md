@@ -44,31 +44,23 @@ $ scrapyer "http://example.com/page?id=12345#yup" /some/place/to/store/files/
 
 ### SSL/TLS Configuration
 
-Scrapyer now supports custom SSL/TLS configuration for HTTPS connections:
+Scrapyer supports custom SSL/TLS configuration for HTTPS connections, including:
 
-```python
-from scrapyer.httprequest import HttpRequest
-from scrapyer.docuproc import DocumentProcessor
-from pathlib import Path
-import ssl
+- **SSL certificate verification control** - Enable or disable certificate verification (default: enabled)
+- **Custom SSL contexts** - Provide your own SSL context for advanced use cases
+- **Self-signed certificates** - Work with development environments using self-signed certificates
+- **Custom CA bundles** - Use custom certificate authority bundles for internal/corporate certificates
+- **Client certificate authentication** - Support for mutual TLS authentication
 
-# Default: SSL verification enabled (recommended)
-request = HttpRequest("https://example.com")
+**📖 For detailed SSL configuration examples and usage, see [SSL_USAGE.md](SSL_USAGE.md)**
 
-# Disable SSL verification (development/testing only)
-request = HttpRequest("https://self-signed.example.com", verify_ssl=False)
+## Features
 
-# Custom SSL context (advanced)
-context = ssl.create_default_context()
-context.load_verify_locations('/path/to/ca-bundle.crt')
-request = HttpRequest("https://example.com", ssl_context=context)
-
-# Process the page
-doc = DocumentProcessor(request, Path("/save/path"))
-doc.start()
-```
-
-For detailed SSL configuration examples, see [SSL_USAGE.md](SSL_USAGE.md).
+- **Web page archiving** - Download and save complete web pages with all assets
+- **SSL/TLS support** - Flexible SSL configuration for secure connections
+- **Retry logic** - Automatic retry with configurable attempts for transient network failures
+- **Timeout handling** - Comprehensive timeout and error handling for robust scraping
+- **Plain text extraction** - Extract clean text content from HTML documents
 
 ## NLP Features
 

@@ -83,8 +83,14 @@ $ scrapyer https://example.com /path/to/save --ssl-cert /path/to/cert.pem
 # Set custom timeout
 $ scrapyer http://example.com /path/to/save --timeout 60
 
+# Text-only mode - skip all media downloads (images, videos, audio)
+$ scrapyer http://example.com /path/to/save --text-only
+
 # Combine crawling with other options
 $ scrapyer https://example.com /path/to/save --crawl --crawl-limit 5 --timeout 60 --no-verify-ssl
+
+# Text-only mode with crawling
+$ scrapyer http://example.com /path/to/save --crawl --text-only
 
 # View all options
 $ scrapyer --help
@@ -97,6 +103,8 @@ $ scrapyer --help
 - **Web page archiving** - Download and save complete web pages with all assets
 - **Web crawling** - Automatically discover and extract content from linked pages on the same domain
 - **Crawl limiting** - Control the scope of crawling with configurable page limits
+- **Text-only mode** - Extract only text content without downloading any media files (images, videos, audio)
+- **Unique content filenames** - Each crawled page gets a unique content filename based on its URL, preventing overwrites
 - **SSL/TLS support** - Flexible SSL configuration for secure connections
 - **Retry logic** - Automatic retry with configurable attempts for transient network failures
 - **Timeout handling** - Comprehensive timeout and error handling for robust scraping

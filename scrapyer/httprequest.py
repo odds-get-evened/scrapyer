@@ -143,7 +143,9 @@ class HttpRequest:
         # Validate content type if HTML-only mode is enabled
         if self.fetch_html_only:
             content_type = response.getheader('Content-Type', '').lower()
-            if not ('text/html' in content_type or 'application/xhtml' in content_type):
+            # Accept HTML, XHTML, and XML content types (including RSS/Atom feeds)
+            if not ('text/html' in content_type or 'application/xhtml' in content_type or 
+                    'xml' in content_type):
                 raise ValueError(
                     f"Expected HTML content but received '{content_type}'. "
                     f"This URL does not point to a web page."

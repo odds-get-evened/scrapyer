@@ -163,14 +163,30 @@ class DocumentProcessor:
             try:
                 response = request.get()
                 
-                # Validate that we received HTML content
+                # Check content type
                 content_type = response.getheader('Content-Type', '')
-                if 'text/html' not in content_type.lower() and 'application/xhtml' not in content_type.lower():
-                    print(f"⚠️  Warning: Response content type is '{content_type}', expected HTML")
+                content_type_lower = content_type.lower()
                 
-                # Parse the HTML content
-                self.dom = BeautifulSoup(response.read(), 'html.parser')
-                print(f"✅ Status: {response.status} {response.reason}")
+                # Parse content based on type
+                content = response.read()
+                
+                if 'text/html' in content_type_lower or 'application/xhtml' in content_type_lower:
+                    # Standard HTML content
+                    self.dom = BeautifulSoup(content, 'html.parser')
+                    print(f"✅ Status: {response.status} {response.reason}")
+                elif 'xml' in content_type_lower:
+                    # XML content (RSS, Atom, or other XML)
+                    print(f"📰 Detected XML content: {content_type}")
+                    # Try to use lxml-xml parser first, fallback to html.parser
+                    try:
+                        self.dom = BeautifulSoup(content, 'lxml-xml')
+                    except Exception:
+                        self.dom = BeautifulSoup(content, 'html.parser')
+                    print(f"✅ Status: {response.status} {response.reason}")
+                else:
+                    print(f"⚠️  Warning: Response content type is '{content_type}', expected HTML or XML")
+                    self.dom = BeautifulSoup(content, 'html.parser')
+                    print(f"✅ Status: {response.status} {response.reason}")
 
                 # Extract links if crawl mode is enabled
                 if self.crawl:
@@ -478,8 +494,9 @@ class DocumentProcessor:
 
     def save_text(self, save_path: Path, request: HttpRequest) -> str:
         """
-        Extract and save plain text content from the HTML document.
-        Focuses on main content areas and removes all HTML markup.
+        Extract and save plain text content from the HTML document or XML feed.
+        For HTML: Focuses on main content areas and removes all HTML markup.
+        For XML: Extracts all text nodes including CDATA sections.
         Only creates a file if there is actual content.
         
         Args:
@@ -493,52 +510,92 @@ class DocumentProcessor:
         if self.dom is None:
             return ""
         
-        # Clone the DOM to avoid modifying the original
-        text_dom = BeautifulSoup(str(self.dom), 'html.parser')
+        # Detect if we're dealing with XML content (RSS, Atom, etc.)
+        # Check for XML structure more efficiently
+        is_xml = (
+            self.dom.name in ['xml', '[document]'] and 
+            (self.dom.find('rss') or self.dom.find('feed') or self.dom.find('channel'))
+        )
         
-        # Remove all non-content elements
-        for element in text_dom(EXCLUDED_ELEMENTS):
-            element.decompose()
-        
-        # Find main content area
-        main_content = None
-        for selector in CONTENT_SELECTORS:
-            main_content = text_dom.select_one(selector)
-            if main_content:
-                break
-        
-        # Fallback to body or entire document
-        if main_content is None:
-            main_content = text_dom.body if text_dom.body else text_dom
-        
-        # Filter out navigation and UI elements
-        self._filter_navigation_and_ui_elements(main_content)
-        
-        # Convert links to readable format: "link text (URL)"
-        for link in main_content.find_all('a'):
-            link_text = link.get_text(strip=True)
-            href = link.get('href', '')
-            if href and link_text:
-                try:
-                    absolute_href = request.absolute_source(href)
-                    link.replace_with(f"{link_text} ({absolute_href})")
-                except Exception:
-                    link.replace_with(link_text)
-        
-        if self.preserve_structure:
-            # Keep basic structure with line breaks for headings and paragraphs
+        if is_xml:
+            # For XML/RSS/Atom feeds, extract all text content including CDATA
+            print("📰 Extracting text from XML/RSS/Atom feed...")
+            
+            # Find items/entries in the feed
+            items = self.dom.find_all('item') or self.dom.find_all('entry')
+            
             text_parts = []
-            for element in main_content.descendants:
-                if element.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
-                    text_parts.append(f"\n\n{'#' * int(element.name[1])} {element.get_text(strip=True)}\n")
-                elif element.name == 'p':
-                    text_parts.append(f"\n{element.get_text(strip=True)}\n")
-                elif element.name in ['li']:
-                    text_parts.append(f"• {element.get_text(strip=True)}\n")
-            text = ''.join(text_parts)
+            if items:
+                # Extract text from each item/entry
+                for item in items:
+                    # Find text-containing elements within each item
+                    for tag_name in ['title', 'description', 'summary', 'content', 'content:encoded']:
+                        elem = item.find(tag_name)
+                        if elem:
+                            elem_text = elem.get_text(strip=True)
+                            # If the text contains HTML tags, parse them to extract clean text
+                            if '<' in elem_text and '>' in elem_text:
+                                try:
+                                    elem_soup = BeautifulSoup(elem_text, 'html.parser')
+                                    elem_text = elem_soup.get_text(separator=' ', strip=True)
+                                except Exception:
+                                    # If parsing fails, use original text
+                                    pass
+                            if elem_text:
+                                text_parts.append(elem_text)
+                
+                text = '\n\n'.join(text_parts)
+            else:
+                # No items/entries found, extract all text
+                text = self.dom.get_text(separator='\n', strip=True)
         else:
-            # Extract plain text with spacing between elements
-            text = main_content.get_text(separator='\n', strip=True)
+            # Standard HTML processing
+            # Clone the DOM to avoid modifying the original
+            text_dom = BeautifulSoup(str(self.dom), 'html.parser')
+            
+            # Remove all non-content elements
+            for element in text_dom(EXCLUDED_ELEMENTS):
+                element.decompose()
+            
+            # Find main content area
+            main_content = None
+            for selector in CONTENT_SELECTORS:
+                main_content = text_dom.select_one(selector)
+                if main_content:
+                    break
+            
+            # Fallback to body or entire document
+            if main_content is None:
+                main_content = text_dom.body if text_dom.body else text_dom
+            
+            # Filter out navigation and UI elements
+            self._filter_navigation_and_ui_elements(main_content)
+            
+            # Convert links to readable format: "link text (URL)"
+            for link in main_content.find_all('a'):
+                link_text = link.get_text(strip=True)
+                href = link.get('href', '')
+                if href and link_text:
+                    try:
+                        absolute_href = request.absolute_source(href)
+                        link.replace_with(f"{link_text} ({absolute_href})")
+                    except Exception:
+                        link.replace_with(link_text)
+            
+            if self.preserve_structure:
+                # Keep basic structure with line breaks for headings and paragraphs
+                text_parts = []
+                for element in main_content.descendants:
+                    if element.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
+                        text_parts.append(f"\n\n{'#' * int(element.name[1])} {element.get_text(strip=True)}\n")
+                    elif element.name == 'p':
+                        text_parts.append(f"\n{element.get_text(strip=True)}\n")
+                    elif element.name in ['li']:
+                        text_parts.append(f"• {element.get_text(strip=True)}\n")
+                text = ''.join(text_parts)
+            else:
+                # Extract plain text with spacing between elements
+                text = main_content.get_text(separator='\n', strip=True)
         
         # Clean up excessive whitespace and blank lines
         text = re.sub(r'\n\s*\n+', '\n\n', text)

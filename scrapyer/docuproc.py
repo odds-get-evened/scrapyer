@@ -180,7 +180,7 @@ class DocumentProcessor:
                     # Try to use lxml-xml parser first, fallback to html.parser
                     try:
                         self.dom = BeautifulSoup(content, 'lxml-xml')
-                    except:
+                    except Exception:
                         self.dom = BeautifulSoup(content, 'html.parser')
                     print(f"✅ Status: {response.status} {response.reason}")
                 else:
@@ -511,9 +511,10 @@ class DocumentProcessor:
             return ""
         
         # Detect if we're dealing with XML content (RSS, Atom, etc.)
-        is_xml = self.dom.name in ['xml', '[document]'] and (
-            self.dom.find('rss') or self.dom.find('feed') or 
-            self.dom.find('channel') or '<?xml' in str(self.dom)[:100]
+        # Check for XML structure more efficiently
+        is_xml = (
+            self.dom.name in ['xml', '[document]'] and 
+            (self.dom.find('rss') or self.dom.find('feed') or self.dom.find('channel'))
         )
         
         if is_xml:
@@ -537,8 +538,9 @@ class DocumentProcessor:
                                 try:
                                     elem_soup = BeautifulSoup(elem_text, 'html.parser')
                                     elem_text = elem_soup.get_text(separator=' ', strip=True)
-                                except:
-                                    pass  # If parsing fails, use original text
+                                except Exception:
+                                    # If parsing fails, use original text
+                                    pass
                             if elem_text:
                                 text_parts.append(elem_text)
                 

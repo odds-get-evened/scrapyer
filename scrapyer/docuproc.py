@@ -77,7 +77,10 @@ class DocumentProcessor:
                  crawl_limit: int = None,
                  timeout: int = 30,
                  verify_ssl: bool = True,
-                 ssl_context: ssl.SSLContext = None):
+                 ssl_context: ssl.SSLContext = None,
+                 enable_quality_filter: bool = False,
+                 quality_threshold: float = 0.6,
+                 use_nlp_quality: bool = True):
         """
         Initialize the document processor for extracting main content from web pages.
         
@@ -92,6 +95,9 @@ class DocumentProcessor:
             timeout: Request timeout in seconds (default: 30)
             verify_ssl: Enable/disable SSL certificate verification (default: True)
             ssl_context: Custom SSL context for HTTPS connections (default: None)
+            enable_quality_filter: Enable intelligent content quality filtering (default: False)
+            quality_threshold: Minimum quality score (0-1) for content to be kept (default: 0.6)
+            use_nlp_quality: Enable NLP-based quality detection (default: True)
         """
         self.dom: BeautifulSoup = None
         self.is_processing: bool = False
@@ -113,6 +119,16 @@ class DocumentProcessor:
         
         # Store only media sources (no scripts or stylesheets)
         self.media_sources: list[DocumentSource] = []
+        
+        # Quality filtering configuration
+        self.enable_quality_filter = enable_quality_filter
+        self.quality_filter = None
+        if enable_quality_filter:
+            from scrapyer.quality_filter import NLPEnhancedQualityFilter, ContentQualityFilter
+            if use_nlp_quality:
+                self.quality_filter = NLPEnhancedQualityFilter(min_quality_score=quality_threshold)
+            else:
+                self.quality_filter = ContentQualityFilter(min_quality_score=quality_threshold)
         
         self.request: HttpRequest = req
 
@@ -652,6 +668,17 @@ class DocumentProcessor:
         
         # Remove all URLs from the text content
         text = self._remove_urls_from_text(text)
+        
+        # Apply quality filter if enabled
+        if self.quality_filter:
+            original_length = len(text)
+            text = self.quality_filter.filter_paragraphs(text)
+            if text:
+                filtered_length = len(text)
+                print(f"🔍 Quality filter: kept {filtered_length}/{original_length} characters ({filtered_length/original_length*100:.1f}%)")
+            else:
+                print("⚠️  Quality filter removed all content")
+                return ""
         
         # Only create file if there is actual content
         if not text:

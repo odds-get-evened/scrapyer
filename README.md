@@ -92,28 +92,80 @@ $ scrapyer https://example.com /path/to/save --crawl --crawl-limit 5 --timeout 6
 # Text-only mode with crawling
 $ scrapyer http://example.com /path/to/save --crawl --text-only
 
+# Enable smart content quality filtering
+$ scrapyer http://example.com /path/to/save --enable-quality-filter
+
+# Quality filtering with custom threshold and heuristics only
+$ scrapyer http://example.com /path/to/save --enable-quality-filter --quality-threshold 0.7 --no-nlp-quality
+
+# Preserve document structure (headings, paragraphs)
+$ scrapyer http://example.com /path/to/save --preserve-structure
+
 # View all options
 $ scrapyer --help
 ```
 
 **📖 For detailed SSL configuration examples and usage, see [SSL_USAGE.md](SSL_USAGE.md)**
 
+### Smart Content Quality Filtering
+
+Scrapyer includes an intelligent content quality filtering system that helps distinguish informative prose content from UI elements, navigation menus, and other non-essential text.
+
+#### How It Works
+
+The quality filter uses multiple linguistic and structural signals to score content:
+
+- **Sentence complexity** - Varied sentence lengths indicate natural prose
+- **Vocabulary richness** - Type-Token Ratio (unique words / total words)
+- **Information density** - Presence of numbers, dates, proper nouns, and technical terms
+- **Research language indicators** - Patterns like "researchers found", "study shows", "according to"
+- **Noise detection** - Penalizes navigation patterns, pagination, and menu-like text
+- **NLP-based semantic analysis** (optional) - Uses the MiniLM ONNX model to compare content against quality prose templates
+
+#### Command Line Usage
+
+```shell
+# Enable quality filtering with default settings
+$ scrapyer http://example.com /path/to/save --enable-quality-filter
+
+# Set a custom quality threshold (0-1 scale, default: 0.6)
+$ scrapyer http://example.com /path/to/save --enable-quality-filter --quality-threshold 0.7
+
+# Use heuristics only (disable NLP enhancement)
+$ scrapyer http://example.com /path/to/save --enable-quality-filter --no-nlp-quality
+
+# Combine with crawling for large-scale content extraction
+$ scrapyer http://example.com /path/to/save --crawl --enable-quality-filter
+```
+
+#### When to Use Quality Filtering
+
+Quality filtering is particularly useful when:
+- Extracting content from news articles, blog posts, or research papers
+- You want to filter out navigation menus, sidebars, and footer text
+- Crawling multiple pages and only want informative content
+- Processing content for text analysis or machine learning
+
+**Note:** Quality filtering requires the base installation. NLP enhancement requires the `nlp` extras (see Installation section).
+
 ## Features
 
 - **Web page archiving** - Download and save complete web pages with all assets
 - **Web crawling** - Automatically discover and extract content from linked pages on the same domain
 - **Crawl limiting** - Control the scope of crawling with configurable page limits
+- **Smart content quality filtering** - Intelligent filtering to distinguish informative content from UI/navigation elements using linguistic and structural signals
 - **Text-only mode** - Extract only text content without downloading any media files (images, videos, audio)
 - **Unique content filenames** - Each crawled page gets a unique content filename based on its URL, preventing overwrites
 - **SSL/TLS support** - Flexible SSL configuration for secure connections
 - **Retry logic** - Automatic retry with configurable attempts for transient network failures
 - **Timeout handling** - Comprehensive timeout and error handling for robust scraping
 - **Plain text extraction** - Extract clean text content from HTML documents
+- **Structured content preservation** - Optionally preserve document structure with headings and paragraphs
 - **Organized output** - Each crawled page is saved in its own subdirectory with unique naming
 
 ## NLP Features
 
-Scrapyer now includes lightweight natural language processing (NLP) capabilities using the MiniLM ONNX model for efficient query processing and intent classification.
+Scrapyer includes lightweight natural language processing (NLP) capabilities using the MiniLM ONNX model for efficient query processing, intent classification, and enhanced content quality filtering.
 
 ### Setup
 
@@ -128,6 +180,8 @@ $ python setup_model.py
 
 ### Usage
 
+#### Programmatic API
+
 ```python
 from nlp.onnx_nlp_model import ONNXNLPModel
 
@@ -140,6 +194,27 @@ result = model.predict("How do I scrape a web page?")
 # Compute similarity between texts
 similarity = model.get_similarity("scrape website", "extract web data")
 ```
+
+#### Enhanced Quality Filtering
+
+The NLP model can optionally enhance content quality filtering with semantic analysis:
+
+```python
+from scrapyer.quality_filter import NLPEnhancedQualityFilter
+
+# Initialize with NLP enhancement
+filter = NLPEnhancedQualityFilter(min_quality_score=0.6, use_nlp=True)
+
+# Check if text is quality content
+is_quality = filter.is_quality_content("Sample text from web page")
+
+# Calculate detailed quality scores
+score, details = filter.calculate_quality_score("Sample text")
+print(f"Quality score: {score:.2f}")
+print(f"Details: {details}")
+```
+
+When using the command-line tool, NLP enhancement is automatically enabled if the model is available (unless `--no-nlp-quality` is specified).
 
 ### Requirements
 

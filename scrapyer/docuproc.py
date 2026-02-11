@@ -571,16 +571,10 @@ class DocumentProcessor:
             # Filter out navigation and UI elements
             self._filter_navigation_and_ui_elements(main_content)
             
-            # Convert links to readable format: "link text (URL)"
+            # Remove links but keep link text (text-only mode: no URLs)
             for link in main_content.find_all('a'):
                 link_text = link.get_text(strip=True)
-                href = link.get('href', '')
-                if href and link_text:
-                    try:
-                        absolute_href = request.absolute_source(href)
-                        link.replace_with(f"{link_text} ({absolute_href})")
-                    except Exception:
-                        link.replace_with(link_text)
+                link.replace_with(link_text if link_text else '')
             
             if self.preserve_structure:
                 # Keep basic structure with line breaks for headings and paragraphs

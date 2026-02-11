@@ -55,6 +55,12 @@ Examples:
                         help='Crawl and extract content from all linked pages found on the initial URL')
     parser.add_argument('--crawl-limit', type=int, metavar='N',
                         help='Maximum number of pages to crawl (default: unlimited)')
+    parser.add_argument('--enable-quality-filter', action='store_true',
+                        help='Enable intelligent content quality filtering to remove UI/navigation text')
+    parser.add_argument('--quality-threshold', type=float, default=0.6, metavar='SCORE',
+                        help='Minimum quality score (0-1) for content to be kept (default: 0.6)')
+    parser.add_argument('--no-nlp-quality', action='store_true',
+                        help='Disable NLP-based quality detection (use heuristics only)')
     
     try:
         args = parser.parse_args()
@@ -91,6 +97,11 @@ Examples:
             mode = "plain text" if not args.preserve_structure else "structured text"
             print(f"📄 Content extraction mode: {mode}")
         
+        # Display quality filter configuration
+        if args.enable_quality_filter:
+            nlp_mode = "with NLP enhancement" if not args.no_nlp_quality else "heuristics only"
+            print(f"🔍 Quality filter enabled (threshold: {args.quality_threshold}, {nlp_mode})")
+        
         # Create HTTP request with SSL configuration
         # This will fetch ONLY the HTML page content, ignoring external resources
         request = HttpRequest(
@@ -119,7 +130,10 @@ Examples:
             crawl_limit=args.crawl_limit,
             timeout=args.timeout,
             verify_ssl=verify_ssl,
-            ssl_context=ssl_context
+            ssl_context=ssl_context,
+            enable_quality_filter=args.enable_quality_filter,
+            quality_threshold=args.quality_threshold,
+            use_nlp_quality=not args.no_nlp_quality,
         )
         doc.start()
         

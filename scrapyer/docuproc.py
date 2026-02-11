@@ -53,6 +53,20 @@ CONTENT_SELECTORS = [
     '.main'
 ]
 
+# URL patterns to remove from text content
+# Matches URLs in various formats: http://, https://, www., ftp://
+# Including URLs in parentheses, brackets, or standalone
+
+# URL matching components
+URL_PROTOCOL = r'(?:https?|ftp):\/\/|www\.'
+URL_CHARS = r'[a-zA-Z0-9\-._~:/?#@!$&\'()*+,;=%]+'  # URL-safe characters
+
+# Complete URL pattern for matching standalone URLs
+URL_PATTERN = re.compile(
+    r'(?:' + URL_PROTOCOL + r')' + URL_CHARS,
+    re.IGNORECASE
+)
+
 
 class DocumentProcessor:
     def __init__(self, req: HttpRequest, p: Path, 
@@ -492,6 +506,46 @@ class DocumentProcessor:
         if audio_count > 0:
             print(f"🔊 Found {audio_count} audio files")
 
+    def _remove_urls_from_text(self, text: str) -> str:
+        """
+        Remove all URLs from text content.
+        This removes URLs in any format including:
+        - http:// and https:// URLs
+        - www. URLs
+        - ftp:// URLs
+        - URLs in parentheses like (http://example.com)
+        - URLs in brackets like [http://example.com]
+        
+        Args:
+            text: The text content to clean
+            
+        Returns:
+            Text with all URLs removed
+        """
+        # Build patterns using the shared URL components to avoid duplication
+        url_in_parens = r'\(\s*(?:' + URL_PROTOCOL + r')' + URL_CHARS + r'\s*\)'
+        url_in_brackets = r'\[\s*(?:' + URL_PROTOCOL + r')' + URL_CHARS + r'\s*\]'
+        
+        # First remove URLs that are enclosed in parentheses or brackets
+        # This handles patterns like "(https://example.com)" or "[http://example.com]"
+        text = re.sub(url_in_parens, '', text, flags=re.IGNORECASE)
+        text = re.sub(url_in_brackets, '', text, flags=re.IGNORECASE)
+        
+        # Then remove any remaining standalone URLs
+        text = URL_PATTERN.sub('', text)
+        
+        # Clean up any leftover empty parentheses or brackets
+        text = re.sub(r'\(\s*\)', '', text)  # Empty parentheses
+        text = re.sub(r'\[\s*\]', '', text)  # Empty brackets
+        
+        # Clean up multiple spaces left by URL removal
+        text = re.sub(r' {2,}', ' ', text)
+        
+        # Clean up lines that are now empty or only whitespace
+        text = re.sub(r'\n\s*\n', '\n\n', text)
+        
+        return text.strip()
+
     def save_text(self, save_path: Path, request: HttpRequest) -> str:
         """
         Extract and save plain text content from the HTML document or XML feed.
@@ -595,6 +649,9 @@ class DocumentProcessor:
         text = re.sub(r'\n\s*\n+', '\n\n', text)
         text = re.sub(r' +', ' ', text)
         text = text.strip()
+        
+        # Remove all URLs from the text content
+        text = self._remove_urls_from_text(text)
         
         # Only create file if there is actual content
         if not text:

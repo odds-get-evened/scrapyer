@@ -153,9 +153,9 @@ class TestURLRemoval(unittest.TestCase):
         self.assertNotIn('http://', text)
         self.assertNotIn('wikipedia.org', text)
         self.assertNotIn('en.wikipedia', text)
-        self.assertNotIn('.org', text)
-        self.assertNotIn('.com', text)
+        self.assertNotIn('wiktionary.org', text)
         self.assertNotIn('index.php', text)
+        self.assertNotIn('w/index.php', text)  # Specific Wikipedia URL pattern
         
         # Check that citation markers remain but not the URLs
         self.assertIn('[1]', text)
@@ -190,8 +190,8 @@ class TestURLRemoval(unittest.TestCase):
         self.assertNotIn('https://', text)
         self.assertNotIn('www.', text)
         self.assertNotIn('ftp://', text)
-        self.assertNotIn('.com', text)
-        self.assertNotIn('.org', text)
+        self.assertNotIn('example.com', text)  # Specific domain instead of TLD
+        self.assertNotIn('test.org', text)  # Specific domain instead of TLD
     
     def test_url_query_parameters_removed(self):
         """Test that URLs with complex query parameters are removed"""

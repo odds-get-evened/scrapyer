@@ -56,9 +56,14 @@ CONTENT_SELECTORS = [
 # URL patterns to remove from text content
 # Matches URLs in various formats: http://, https://, www., ftp://
 # Including URLs in parentheses, brackets, or standalone
+
+# URL matching components
+URL_PROTOCOL = r'(?:https?|ftp):\/\/|www\.'
+URL_CHARS = r'[a-zA-Z0-9\-._~:/?#@!$&\'()*+,;=%]+'  # URL-safe characters
+
+# Complete URL pattern for matching standalone URLs
 URL_PATTERN = re.compile(
-    r'(?:(?:https?|ftp):\/\/|www\.)'  # Protocol or www
-    r'(?:[a-zA-Z0-9\-._~:/?#\[\]@!$&\'()*+,;=%]+)',  # URL characters
+    r'(?:' + URL_PROTOCOL + r')' + URL_CHARS,
     re.IGNORECASE
 )
 
@@ -517,10 +522,14 @@ class DocumentProcessor:
         Returns:
             Text with all URLs removed
         """
+        # Build patterns using the shared URL components to avoid duplication
+        url_in_parens = r'\(\s*(?:' + URL_PROTOCOL + r')' + URL_CHARS + r'\s*\)'
+        url_in_brackets = r'\[\s*(?:' + URL_PROTOCOL + r')' + URL_CHARS + r'\s*\]'
+        
         # First remove URLs that are enclosed in parentheses or brackets
         # This handles patterns like "(https://example.com)" or "[http://example.com]"
-        text = re.sub(r'\(\s*(?:(?:https?|ftp):\/\/|www\.)(?:[a-zA-Z0-9\-._~:/?#\[\]@!$&\'()*+,;=%]+)\s*\)', '', text)
-        text = re.sub(r'\[\s*(?:(?:https?|ftp):\/\/|www\.)(?:[a-zA-Z0-9\-._~:/?#\[\]@!$&\'()*+,;=%]+)\s*\]', '', text)
+        text = re.sub(url_in_parens, '', text, flags=re.IGNORECASE)
+        text = re.sub(url_in_brackets, '', text, flags=re.IGNORECASE)
         
         # Then remove any remaining standalone URLs
         text = URL_PATTERN.sub('', text)
